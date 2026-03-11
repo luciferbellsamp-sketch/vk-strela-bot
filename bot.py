@@ -580,13 +580,17 @@ async def strela_handler(message: Message, raw: str):
     strel_id = create_strel(chat_id, message.peer_id, message.from_id, parsed)
     text = f"@all\n\n{await build_strel_text(strel_id)}"
 
-    cmid = await bot.api.messages.send(
+    sent_message_id = await bot.api.messages.send(
         peer_id=message.peer_id,
         random_id=0,
         message=text,
         keyboard=build_strel_keyboard(strel_id),
     )
-    set_strel_cmid(strel_id, cmid)
+
+    msg_info = await bot.api.messages.get_by_id(message_ids=[sent_message_id])
+    conversation_message_id = msg_info.items[0].conversation_message_id
+
+    set_strel_cmid(strel_id, conversation_message_id)
 
     # автоматически добавляем стрелу в расписание на сегодня/указанную дату
     server_num = None
