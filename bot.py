@@ -47,7 +47,6 @@ SERVER_MAP = {
 # =========================================================
 def init_db() -> None:
     cur = conn.cursor()
-
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS strels (
@@ -60,13 +59,12 @@ def init_db() -> None:
             event_date TEXT NOT NULL,
             event_time TEXT NOT NULL,
             comment TEXT DEFAULT '',
-            conversation_message_id INTEGER,
+            message_id INTEGER,
             created_at INTEGER NOT NULL,
             is_active INTEGER NOT NULL DEFAULT 1
         )
         """
     )
-
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS strel_players (
@@ -80,7 +78,6 @@ def init_db() -> None:
         )
         """
     )
-
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS bizwars (
@@ -96,7 +93,6 @@ def init_db() -> None:
         )
         """
     )
-
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS mutes (
@@ -107,7 +103,6 @@ def init_db() -> None:
         )
         """
     )
-
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS activity (
@@ -119,20 +114,6 @@ def init_db() -> None:
         )
         """
     )
-
-    conn.commit()
-    ensure_schema()
-
-
-def ensure_schema() -> None:
-    cur = conn.cursor()
-
-    cur.execute("PRAGMA table_info(strels)")
-    columns = {row[1] for row in cur.fetchall()}
-
-    if "conversation_message_id" not in columns:
-        cur.execute("ALTER TABLE strels ADD COLUMN conversation_message_id INTEGER")
-
     conn.commit()
 
 
@@ -265,9 +246,9 @@ def create_strel(chat_id: int, peer_id: int, creator_id: int, data: StrelData) -
     conn.commit()
     return cur.lastrowid
 
-def set_strel_cmid(strel_id: int, cmid: int) -> None:
+def set_strel_message_id(strel_id: int, message_id: int) -> None:
     cur = conn.cursor()
-    cur.execute("UPDATE strels SET conversation_message_id = ? WHERE id = ?", (cmid, strel_id))
+    cur.execute("UPDATE strels SET message_id = ? WHERE id = ?", (message_id, strel_id))
     conn.commit()
 
 def get_next_free_position(strel_id: int, slot_type: str, limit: int) -> Optional[int]:
@@ -312,7 +293,6 @@ def rebalance_strel(strel_id: int) -> None:
             "INSERT INTO strel_players (strel_id, user_id, slot_type, position) VALUES (?, ?, 'main', ?)",
             (strel_id, user_id, idx),
         )
-
     for idx, user_id in enumerate(reserve_users, start=1):
         cur.execute(
             "INSERT INTO strel_players (strel_id, user_id, slot_type, position) VALUES (?, ?, 'reserve', ?)",
@@ -390,12 +370,10 @@ def get_active_mute(chat_id: int, user_id: int) -> Optional[int]:
     row = cur.fetchone()
     if not row:
         return None
-
     if row["until_ts"] <= now_ts():
         cur.execute("DELETE FROM mutes WHERE user_id = ? AND chat_id = ?", (user_id, chat_id))
         conn.commit()
         return None
-
     return row["until_ts"]
 
 def add_bizwar(chat_id: int, war_time: str, enemy: str, server_num: int, player_count: int, war_date: Optional[str] = None) -> None:
@@ -463,29 +441,31 @@ async def build_strel_text(strel_id: int) -> str:
     lines.extend(["", f"ID стрелы: {strel_id}"])
     return "\n".join(lines)
 
-async def update_strel_message(strel_id: int) -> None:
+async def resend_strel_message(strel_id: int) -> None:
     strel = fetch_strel(strel_id)
     if not strel:
-        print(f"DEBUG: strel {strel_id} not found")
-        return
-
-    cmid = strel["conversation_message_id"]
-    if not cmid:
-        print(f"DEBUG: no cmid for strel {strel_id}")
         return
 
     text = await build_strel_text(strel_id)
 
-    result = await bot.api.request(
-        "messages.edit",
-        {
-            "peer_id": strel["peer_id"],
-            "cmid": int(cmid),
-            "message": text,
-            "keyboard": build_strel_keyboard(strel_id),
-        },
+    old_message_id = strel["message_id"]
+    if old_message_id:
+        try:
+            await bot.api.messages.delete(
+                message_ids=[old_message_id],
+                delete_for_all=True,
+            )
+        except Exception:
+            pass
+
+    new_message_id = await bot.api.messages.send(
+        peer_id=strel["peer_id"],
+        random_id=0,
+        message=text,
+        keyboard=build_strel_keyboard(strel_id),
     )
-    print("DEBUG EDIT RESULT:", result)
+
+    set_strel_message_id(strel_id, int(new_message_id))
 
 async def send_weekly_reports() -> None:
     since_ts = now_ts() - 7 * 86400
@@ -620,33 +600,13 @@ async def strela_handler(message: Message, raw: str):
     strel_id = create_strel(chat_id, message.peer_id, message.from_id, parsed)
     text = f"@all\n\n{await build_strel_text(strel_id)}"
 
-    await bot.api.messages.send(
+    sent_message_id = await bot.api.messages.send(
         peer_id=message.peer_id,
         random_id=0,
         message=text,
         keyboard=build_strel_keyboard(strel_id),
     )
-
-    history = await bot.api.request(
-        "messages.getHistory",
-        {
-            "peer_id": message.peer_id,
-            "count": 5,
-        },
-    )
-
-    cmid = None
-    for item in history["items"]:
-        msg_text = item.get("text", "")
-        if "ID стрелы: " in msg_text and f"ID стрелы: {strel_id}" in msg_text:
-            cmid = item["conversation_message_id"]
-            break
-
-    if cmid is None:
-        await message.answer("Не удалось сохранить ID сообщения стрелы.")
-        return
-
-    set_strel_cmid(strel_id, int(cmid))
+    set_strel_message_id(strel_id, int(sent_message_id))
 
     server_num = None
     parsed_server_lower = parsed.server_name.lower()
@@ -717,7 +677,7 @@ async def add_handler(message: Message, strel_id: str, target: str):
     )
     conn.commit()
 
-    await update_strel_message(int(strel_id))
+    await resend_strel_message(int(strel_id))
     await message.answer("Игрок добавлен в основу.")
 
 @bot.on.message(text=["!remove <strel_id> <target>", "/remove <strel_id> <target>"])
@@ -736,7 +696,7 @@ async def remove_handler(message: Message, strel_id: str, target: str):
 
     ok, text = remove_user_from_strel(int(strel_id), user_id)
     if ok:
-        await update_strel_message(int(strel_id))
+        await resend_strel_message(int(strel_id))
     await message.answer(text)
 
 @bot.on.message(text=["!вызов <text>", "/вызов <text>", "!all <text>", "/all <text>"])
@@ -814,13 +774,13 @@ async def handle_message_event(event: GroupTypes.MessageEvent):
     try:
         if cmd == "join_strel":
             _, text = add_user_to_strel(strel_id, user_id)
-            await update_strel_message(strel_id)
+            await resend_strel_message(strel_id)
         elif cmd == "leave_strel":
             _, text = remove_user_from_strel(strel_id, user_id)
-            await update_strel_message(strel_id)
+            await resend_strel_message(strel_id)
         elif cmd == "refresh_strel":
             text = "Список обновлен."
-            await update_strel_message(strel_id)
+            await resend_strel_message(strel_id)
         else:
             text = "Неизвестная команда."
 
