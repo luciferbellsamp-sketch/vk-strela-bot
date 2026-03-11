@@ -593,11 +593,12 @@ async def strela_handler(message: Message, raw: str):
         keyboard=build_strel_keyboard(strel_id),
     )
 
-    msg_info = await bot.api.messages.get_by_id(
-        message_ids=sent_message_id
+    msg_info = await bot.api.request(
+        "messages.getById",
+        {"message_ids": sent_message_id},
     )
 
-    cmid = msg_info.items[0].conversation_message_id
+    cmid = msg_info["items"][0]["conversation_message_id"]
 
     set_strel_cmid(strel_id, cmid)
 
