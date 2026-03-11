@@ -349,6 +349,10 @@ async def update_strel_message(strel_id: int) -> None:
 async def ping_handler(message: Message):
     await message.answer("Бот работает ✅")
 
+@bot.on.message(text="/myid")
+async def myid_handler(message: Message):
+    await message.answer(f"Твой ID: {message.from_id}")
+
 
 @bot.on.message(text="/help")
 async def help_handler(message: Message):
