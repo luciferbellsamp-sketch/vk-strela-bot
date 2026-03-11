@@ -985,7 +985,10 @@ async def bizwar_list_handler(message: Message):
 
 @bot.on.message(text=["!add <strel_id> <target> <slot_type>", "/add <strel_id> <target> <slot_type>"])
 async def add_handler(message: Message, strel_id: str, target: str, slot_type: str):
-    if message.from_id is None or not is_moderator(message.from_id):
+    if message.from_id is None or message.peer_id is None:
+        return
+
+    if not is_moderator(message.from_id):
         await message.answer("У тебя нет прав на эту команду.")
         return
 
@@ -1004,19 +1007,20 @@ async def add_handler(message: Message, strel_id: str, target: str, slot_type: s
     elif slot_type in {"резерв", "reserve"}:
         slot_type = "reserve"
     else:
-        await message.answer("Укажи slot_type: main/reserve или основа/резерв")
+        await message.answer("Укажи: main/reserve или основа/резерв")
         return
 
-    strel = fetch_strel(int(strel_id))
+    strel_id_int = int(strel_id)
+    strel = fetch_strel(strel_id_int)
     if not strel:
         await message.answer("Стрела не найдена.")
         return
 
-    if fetch_player_entry(int(strel_id), user_id):
+    if fetch_player_entry(strel_id_int, user_id):
         await message.answer("Пользователь уже записан.")
         return
 
-    pos = get_next_free_position(int(strel_id), slot_type, strel["count_slots"])
+    pos = get_next_free_position(strel_id_int, slot_type, strel["count_slots"])
     if pos is None:
         if slot_type == "main":
             await message.answer("В основе мест нет.")
@@ -1027,11 +1031,18 @@ async def add_handler(message: Message, strel_id: str, target: str, slot_type: s
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO strel_players (strel_id, user_id, slot_type, position) VALUES (?, ?, ?, ?)",
-        (int(strel_id), user_id, slot_type, pos),
+        (strel_id_int, user_id, slot_type, pos),
     )
     conn.commit()
 
-    await update_strel_message(int(strel_id))
+    reply_cmid = None
+    if message.reply_message:
+        reply_cmid = getattr(message.reply_message, "conversation_message_id", None)
+
+    if reply_cmid:
+        await update_strel_message_by_cmid(strel_id_int, message.peer_id, int(reply_cmid))
+    else:
+        await update_strel_message(strel_id_int)
 
     if slot_type == "main":
         await message.answer("Игрок добавлен в основу.")
@@ -1041,9 +1052,13 @@ async def add_handler(message: Message, strel_id: str, target: str, slot_type: s
 
 @bot.on.message(text=["!remove <strel_id> <target>", "/remove <strel_id> <target>"])
 async def remove_handler(message: Message, strel_id: str, target: str):
-    if message.from_id is None or not is_moderator(message.from_id):
+    if message.from_id is None or message.peer_id is None:
+        return
+
+    if not is_moderator(message.from_id):
         await message.answer("У тебя нет прав на эту команду.")
         return
+
     if not strel_id.isdigit():
         await message.answer("Укажи корректный ID стрелы.")
         return
@@ -1053,9 +1068,19 @@ async def remove_handler(message: Message, strel_id: str, target: str):
         await message.answer("Не смог определить пользователя.")
         return
 
-    ok, text = remove_user_from_strel(int(strel_id), user_id)
+    strel_id_int = int(strel_id)
+    ok, text = remove_user_from_strel(strel_id_int, user_id)
+
     if ok:
-        await update_strel_message(int(strel_id))
+        reply_cmid = None
+        if message.reply_message:
+            reply_cmid = getattr(message.reply_message, "conversation_message_id", None)
+
+        if reply_cmid:
+            await update_strel_message_by_cmid(strel_id_int, message.peer_id, int(reply_cmid))
+        else:
+            await update_strel_message(strel_id_int)
+
     await message.answer(text)
 
 
