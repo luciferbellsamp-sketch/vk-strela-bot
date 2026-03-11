@@ -209,6 +209,54 @@ def parse_strela_command(text: str) -> Optional[StrelData]:
         comment=comment,
     )
 
+@dataclass
+class BizwarData:
+    war_date: str
+    war_time: str
+    enemy: str
+    server_num: int
+    player_count: int
+
+
+def parse_bizwarnew_command(text: str) -> Optional[BizwarData]:
+    # /bizwarnew 10.03 17:00 lcn 29 4
+    parts = text.strip().split()
+    if len(parts) != 6:
+        return None
+
+    cmd, war_date, war_time, enemy, server_num_raw, player_count_raw = parts
+
+    if cmd.lower() not in {"!bizwarnew", "/bizwarnew"}:
+        return None
+
+    if not re.match(r"^\d{2}\.\d{2}$", war_date):
+        return None
+
+    if not re.match(r"^\d{1,2}:\d{2}$", war_time):
+        return None
+
+    enemy = enemy.lower()
+    if enemy not in {"lcn", "wmc", "trb", "ykz", "rm"}:
+        return None
+
+    if not server_num_raw.isdigit():
+        return None
+    server_num = int(server_num_raw)
+    if server_num < 1 or server_num > 32:
+        return None
+
+    player_count = parse_count(player_count_raw)
+    if not player_count or player_count < 1 or player_count > 20:
+        return None
+
+    return BizwarData(
+        war_date=war_date,
+        war_time=war_time,
+        enemy=enemy,
+        server_num=server_num,
+        player_count=player_count,
+    )
+
 
 def build_strel_keyboard(strel_id: int):
     return (
@@ -519,6 +567,18 @@ def list_today_bizwars(chat_id: int):
     cur.execute(
         "SELECT * FROM bizwars WHERE chat_id = ? AND war_date = ? ORDER BY war_time ASC, server_num ASC",
         (chat_id, today_str()),
+    )
+    return cur.fetchall()
+
+def list_bizwars_by_date(chat_id: int, war_date: str):
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT * FROM bizwars
+        WHERE chat_id = ? AND war_date = ?
+        ORDER BY war_time ASC, server_num ASC
+        """,
+        (chat_id, war_date),
     )
     return cur.fetchall()
 
@@ -893,7 +953,8 @@ async def help_handler(message: Message):
     await message.answer(
         "Команды:\n"
         "!strela - забить стрелу. Пример: !strela 4x4 Mirage 10.03 17:00 Дигл шот\n"
-        "!bizwar - показать стрелы на сегодня\n"
+        "/bizwarnew 10.03 17:00 lcn 29 4 - добавить бизвар в расписание\n"
+        "/bizwar [дата] - показать запланированные стрелы\n"
         "!add ID @user main|reserve - добавить человека в состав\n"
         "!remove ID @user - удалить человека из состава\n"
         "!all текст - срочный вызов всех\n"
@@ -903,6 +964,7 @@ async def help_handler(message: Message):
         "!activ - отправить отчет модераторам в ЛС\n"
         "+ - записаться ответом на сообщение стрелы\n"
         "- - выйти ответом на сообщение стрелы\n"
+        
     )
 
 
@@ -957,21 +1019,81 @@ async def strela_handler(message: Message, raw: str):
     if server_num is not None:
         add_bizwar(chat_id, parsed.event_time, "strela", server_num, parsed.count_slots, parsed.event_date)
 
+@bot.on.message(text=["!bizwarnew <raw>", "/bizwarnew <raw>"])
+async def bizwarnew_handler(message: Message, raw: str):
+    if message.from_id is None or message.peer_id is None:
+        return
+
+    if message.peer_id < 2_000_000_000:
+        await message.answer("Команда работает только в беседе.")
+        return
+
+    if not is_moderator(message.from_id):
+        await message.answer("У тебя нет прав на эту команду.")
+        return
+
+    chat_id = message.peer_id - 2_000_000_000
+
+    if CHAT_ID and chat_id != CHAT_ID:
+        await message.answer("Бот настроен для другой беседы.")
+        return
+
+    parsed = parse_bizwarnew_command(f"/bizwarnew {raw}")
+    if not parsed:
+        await message.answer(
+            "Формат: /bizwarnew 10.03 17:00 lcn 29 4\n"
+            "Где: дата время против_кого сервер количество"
+        )
+        return
+
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO bizwars (chat_id, war_date, war_time, enemy, server_num, player_count, created_at, notified)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+        """,
+        (
+            chat_id,
+            parsed.war_date,
+            parsed.war_time,
+            parsed.enemy,
+            parsed.server_num,
+            parsed.player_count,
+            now_ts(),
+        ),
+    )
+    conn.commit()
+
+    server_name = SERVER_MAP.get(parsed.server_num, str(parsed.server_num))
+    await message.answer(
+        f"Бизвар добавлен:\n"
+        f"{parsed.war_date} {parsed.war_time} vs {parsed.enemy} ({server_name}) "
+        f"[{parsed.player_count}x{parsed.player_count}]"
+    )
+
 
 @bot.on.message(text=["!bizwar", "/bizwar", "!strels", "/strels"])
-async def bizwar_list_handler(message: Message):
+@bot.on.message(text=["!bizwar <war_date>", "/bizwar <war_date>", "!strels <war_date>", "/strels <war_date>"])
+async def bizwar_list_handler(message: Message, war_date: Optional[str] = None):
     if message.peer_id is None or message.peer_id < 2_000_000_000:
         return
 
     cleanup_old_bizwars()
     chat_id = message.peer_id - 2_000_000_000
-    rows = list_today_bizwars(chat_id)
 
-    if not rows:
-        await message.answer("Стрел на сегодня пока не запланировано.")
+    target_date = war_date or today_str()
+
+    if not re.match(r"^\d{2}\.\d{2}$", target_date):
+        await message.answer("Укажи дату в формате 10.03")
         return
 
-    lines = [f"{today_str()}:"]
+    rows = list_bizwars_by_date(chat_id, target_date)
+
+    if not rows:
+        await message.answer(f"На {target_date} стрел пока не запланировано.")
+        return
+
+    lines = [f"{target_date}:"]
     for row in rows:
         server_name = SERVER_MAP.get(row["server_num"], row["server_num"])
         enemy = row["enemy"]
