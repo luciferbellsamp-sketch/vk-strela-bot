@@ -4,7 +4,7 @@ import sqlite3
 import time
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from vkbottle import Bot, Keyboard, KeyboardButtonColor, GroupEventType, Callback, GroupTypes
