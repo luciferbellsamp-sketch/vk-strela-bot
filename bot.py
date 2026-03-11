@@ -442,6 +442,10 @@ async def build_strel_text(strel_id: int) -> str:
         return "Стрела не найдена."
 
     players = fetch_strel_players(strel_id)
+
+    all_user_ids = [row["user_id"] for row in players]
+    user_names = await get_user_names(all_user_ids)
+
     main_map = {row["position"]: row["user_id"] for row in players if row["slot_type"] == "main"}
     reserve_map = {row["position"]: row["user_id"] for row in players if row["slot_type"] == "reserve"}
 
@@ -450,12 +454,24 @@ async def build_strel_text(strel_id: int) -> str:
         title += f" {strel['comment']}"
 
     lines = ["⚔️ Сбор на стрелу", "", title, "", "Основа:"]
+
     for i in range(1, strel["count_slots"] + 1):
-        lines.append(f"{i}) [id{main_map[i]}|Игрок]" if i in main_map else f"{i})")
+        if i in main_map:
+            uid = main_map[i]
+            name = user_names.get(uid, f"id{uid}")
+            lines.append(f"{i}) [id{uid}|{name}]")
+        else:
+            lines.append(f"{i})")
 
     lines.extend(["", "Резерв:"])
+
     for i in range(1, strel["count_slots"] + 1):
-        lines.append(f"{i}. [id{reserve_map[i]}|Игрок]" if i in reserve_map else f"{i}.")
+        if i in reserve_map:
+            uid = reserve_map[i]
+            name = user_names.get(uid, f"id{uid}")
+            lines.append(f"{i}. [id{uid}|{name}]")
+        else:
+            lines.append(f"{i}.")
 
     lines.extend(["", f"ID стрелы: {strel_id}"])
     return "\n".join(lines)
