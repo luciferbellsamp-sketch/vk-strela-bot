@@ -441,7 +441,7 @@ async def update_strel_message(strel_id: int) -> None:
     result = await bot.api.messages.edit(
         peer_id=strel["peer_id"],
         message_id=strel["conversation_message_id"],
-        message=text,
+        cmid=strel["conversation_message_id"],
         keyboard=build_strel_keyboard(strel_id),
     )
     print("DEBUG EDIT RESULT:", result)
