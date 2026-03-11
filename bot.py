@@ -585,6 +585,7 @@ async def scheduler_loop() -> None:
 async def ping_handler(message: Message):
     await message.answer("Бот работает ✅")
 
+
 @bot.on.message(text=["!time"])
 async def time_handler(message: Message):
     await message.answer(now().strftime("Время бота: %d.%m %H:%M"))
