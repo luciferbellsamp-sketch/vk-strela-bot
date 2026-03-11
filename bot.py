@@ -986,6 +986,7 @@ async def help_handler(message: Message):
         "!strela - забить стрелу. Пример: !strela 4x4 Mirage 10.03 17:00 Дигл шот\n"
         "/bizwarnew 10.03 17:00 lcn 29 4 - добавить бизвар в расписание\n"
         "/bizwar - показать запланированные стрелы\n"
+        "/bizwardel id  - удалить стрелу из списка\n"
         "!add ID @user main|reserve - добавить человека в состав\n"
         "!remove ID @user - удалить человека из состава\n"
         "!all текст - срочный вызов всех\n"
