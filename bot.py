@@ -623,15 +623,14 @@ async def chatid_handler(message: Message):
 async def help_handler(message: Message):
     await message.answer(
         "Команды:\n"
-        "!strela - забить стрелу. Пример: !strela 4x4 Mirage 10.03 17:00 Дигл шот\n"
-        "!bizwar — показать стрелы на сегодня\n"
-        "!add ID @user main|reserve\n"
-        "!remove ID @user\n"
-        "!вызов текст\n"
-        "!all текст\n"
-        "!mute @user 10|30|60\n"
-        "!топ 7\n"
-        "!топ 30"
+        "!strela - забить стрелу.Пример:!strela 4x4 Mirage 10.03 17:00 Дигл шот\n"
+        "!bizwar - показать стрелы на сегодня\n"
+        "!add ID @user main|reserve - обновить состав на стрелу(добавить)\n"
+        "!remove ID @user - удалить человека из состава на стрелу\n"
+        "!all текст — срочный вызов всех\n"
+        "!mute @user 10|30|60 - выдать мут\n"
+        "!топ 7 - топ стрелков за неделю\n"
+        "!топ 30 - топ стрелком за месяц"
     )
 
 @bot.on.message(text=["!strela <raw>", "/strela <raw>"])
@@ -777,12 +776,17 @@ async def remove_handler(message: Message, strel_id: str, target: str):
         await resend_strel_message(int(strel_id))
     await message.answer(text)
 
-@bot.on.message(text=["!вызов <text>", "/вызов <text>", "!all <text>", "/all <text>"])
+@bot.on.message(text=["!all <text>", "/all <text>"])
 async def call_handler(message: Message, text: str):
     if message.from_id is None or not is_moderator(message.from_id):
         await message.answer("У тебя нет прав на эту команду.")
         return
-    await message.answer(f"@all\n{text}")
+
+    await message.answer(
+        f"🚨 ВНИМАНИЕ ВСЕМ 🚨\n\n"
+        f"@all\n\n"
+        f"{text}"
+    )
 
 @bot.on.message(text=["!mute <target> <minutes>", "/mute <target> <minutes>"])
 async def mute_handler(message: Message, target: str, minutes: str):
