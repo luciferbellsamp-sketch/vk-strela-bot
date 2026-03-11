@@ -2,6 +2,7 @@ import os
 import re
 import sqlite3
 import time
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
@@ -515,7 +516,7 @@ async def scheduler_loop() -> None:
         except Exception as e:
             print(f"SCHEDULER ERROR: {e}")
 
-        await bot.loop_wrapper.interval(60)
+        await asyncio.sleep(60)
 
 
 # =========================================================
