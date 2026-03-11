@@ -778,9 +778,14 @@ async def top_handler(message: Message, days: str):
         await message.answer("За этот период активности нет.")
         return
 
+    user_ids = [row["user_id"] for row in rows]
+    user_names = await get_user_names(user_ids)
+
     lines = [f"Топ за {days} дней:"]
     for idx, row in enumerate(rows, start=1):
-        lines.append(f"{idx}) [id{row['user_id']}|Игрок] — {row['cnt']}")
+        uid = row["user_id"]
+        name = user_names.get(uid, f"id{uid}")
+        lines.append(f"{idx}) [id{uid}|{name}] — {row['cnt']}")
 
     await message.answer("\n".join(lines))
 
