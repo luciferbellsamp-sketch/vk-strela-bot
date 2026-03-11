@@ -135,9 +135,12 @@ MENTION_RE = re.compile(r"\[id(\d+)\|[^\]]+\]|@id(\d+)|\[club(\d+)\|[^\]]+\]|@cl
 
 def now_ts() -> int:
     return int(time.time())
+MSK = timezone(timedelta(hours=3))
 
+def now():
+    return now(MSK)
 def today_str() -> str:
-    return datetime.now().strftime("%d.%m")
+    return now().strftime("%d.%m")
 
 def is_moderator(user_id: int) -> bool:
     return user_id in MODERATOR_IDS
@@ -377,7 +380,7 @@ def remove_user_from_strel(strel_id: int, user_id: int) -> tuple[bool, str]:
     return True, "Ты удален из слотов."
 
 def set_mute(chat_id: int, user_id: int, minutes: int) -> int:
-    until_ts = int((datetime.now() + timedelta(minutes=minutes)).timestamp())
+    until_ts = int((now() + timedelta(minutes=minutes)).timestamp())
     cur = conn.cursor()
     cur.execute("REPLACE INTO mutes (user_id, chat_id, until_ts) VALUES (?, ?, ?)", (user_id, chat_id, until_ts))
     conn.commit()
@@ -413,10 +416,10 @@ def list_today_bizwars(chat_id: int):
 
 def cleanup_old_bizwars() -> None:
     cur = conn.cursor()
-    current_hm = datetime.now().strftime("%H:%M")
+    current_hm = now().strftime("%H:%M")
     cur.execute("DELETE FROM bizwars WHERE war_date < ?", (today_str(),))
     cur.execute("DELETE FROM bizwars WHERE war_date = ? AND war_time < ?", (today_str(), current_hm))
-    if datetime.now().hour >= 22:
+    if now().hour >= 22:
         cur.execute("DELETE FROM bizwars WHERE war_date = ?", (today_str(),))
     conn.commit()
 
@@ -542,7 +545,7 @@ async def scheduler_loop() -> None:
         try:
             cleanup_old_bizwars()
             rows = list_today_bizwars(CHAT_ID) if CHAT_ID else []
-            now_obj = datetime.now()
+            now_obj = now()
 
             for row in rows:
                 war_dt = datetime.strptime(f"{row['war_date']} {row['war_time']}", "%d.%m %H:%M")
@@ -562,10 +565,10 @@ async def scheduler_loop() -> None:
                     cur.execute("UPDATE bizwars SET notified = 1 WHERE id = ?", (row["id"],))
                     conn.commit()
 
-            weekday = datetime.now().weekday()
-            hour = datetime.now().hour
+            weekday = now().weekday()
+            hour = now().hour
             if weekday == 0 and hour == 12:
-                day_key = datetime.now().strftime("%Y-%m-%d")
+                day_key = now().strftime("%Y-%m-%d")
                 if last_weekly_day != day_key:
                     await send_weekly_reports()
                     last_weekly_day = day_key
@@ -581,6 +584,10 @@ async def scheduler_loop() -> None:
 @bot.on.message(text=["/ping", "!ping", "ping"])
 async def ping_handler(message: Message):
     await message.answer("Бот работает ✅")
+
+@bot.on.message(text=["!time"])
+async def time_handler(message: Message):
+    await message.answer(now().strftime("Время бота: %d.%m %H:%M"))
 
 @bot.on.message(text=["/myid", "!myid"])
 async def myid_handler(message: Message):
