@@ -141,8 +141,6 @@ def init_db() -> None:
 
 
 init_db()
-add_moderator(514270875)
-add_moderator(271477597)
 
 
 # =========================================================
@@ -1496,5 +1494,9 @@ async def mute_guard(message: Message):
 # START
 # =========================================================
 bot.loop_wrapper.add_task(scheduler_loop())
+
+add_moderator(514270875)
+add_moderator(271477597)
+
 print("Bot started")
 bot.run_forever()
