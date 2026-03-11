@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 
-from vkbottle import Bot, Keyboard, KeyboardButtonColor, GroupEventType, Callback
+from vkbottle import Bot, Keyboard, KeyboardButtonColor, GroupEventType, Callback, GroupTypes
 from vkbottle.bot import Message
 
 # =========================================================
@@ -533,12 +533,19 @@ async def mute_handler(message: Message, target: str, minutes: str):
 # =========================================================
 # CALLBACKS
 # =========================================================
-@bot.on.raw_event(GroupEventType.MESSAGE_EVENT, dataclass=None)
-async def handle_message_event(event):
+@bot.on.raw_event(GroupEventType.MESSAGE_EVENT, dataclass=GroupTypes.MessageEvent)
+async def handle_message_event(event: GroupTypes.MessageEvent):
     payload = event.object.payload or {}
     cmd = payload.get("cmd")
     strel_id = payload.get("strel_id")
+
     if not strel_id:
+        await bot.api.messages.send_message_event_answer(
+            event_id=event.object.event_id,
+            user_id=event.object.user_id,
+            peer_id=event.object.peer_id,
+            event_data={"type": "show_snackbar", "text": "Нет ID стрелы."},
+        )
         return
 
     strel_id = int(strel_id)
