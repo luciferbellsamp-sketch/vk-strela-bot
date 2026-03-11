@@ -590,21 +590,38 @@ async def build_strel_text(strel_id: int) -> str:
     return "\n".join(lines)
 
 
-async def update_strel_message_by_cmid(strel_id: int, peer_id: int, cmid: int) -> None:
+async def update_strel_message(strel_id: int) -> None:
+    strel = fetch_strel(strel_id)
+    if not strel:
+        print(f"EDIT ERROR: strel {strel_id} not found")
+        return
+
     text = await build_strel_text(strel_id)
+
+    if strel["message_id"]:
+        try:
+            result = await bot.api.messages.edit(
+                peer_id=strel["peer_id"],
+                message_id=int(strel["message_id"]),
+                message=text,
+                keyboard=build_strel_keyboard(strel_id),
+            )
+            print("EDIT RESULT:", result)
+            return
+        except Exception as e:
+            print("EDIT ERROR:", e)
+
     try:
-        result = await bot.api.request(
-            "messages.edit",
-            {
-                "peer_id": peer_id,
-                "cmid": cmid,
-                "message": text,
-                "keyboard": build_strel_keyboard(strel_id),
-            },
+        new_message_id = await bot.api.messages.send(
+            peer_id=strel["peer_id"],
+            random_id=int(time.time() * 1000),
+            message=text,
+            keyboard=build_strel_keyboard(strel_id),
         )
-        print("EDIT RESULT:", result)
+        print("FALLBACK SEND RESULT:", new_message_id)
+        set_strel_message_id(strel_id, int(new_message_id))
     except Exception as e:
-        print("EDIT ERROR:", e)
+        print("FALLBACK SEND ERROR:", e)
 
 
 async def update_strel_message(strel_id: int) -> None:
@@ -1044,6 +1061,7 @@ async def remove_handler(message: Message, strel_id: str, target: str):
     if message.from_id is None or not is_moderator(message.from_id):
         await message.answer("У тебя нет прав на эту команду.")
         return
+
     if not strel_id.isdigit():
         await message.answer("Укажи корректный ID стрелы.")
         return
@@ -1056,6 +1074,7 @@ async def remove_handler(message: Message, strel_id: str, target: str):
     ok, text = remove_user_from_strel(int(strel_id), user_id)
     if ok:
         await update_strel_message(int(strel_id))
+
     await message.answer(text)
 
 
