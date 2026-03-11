@@ -224,6 +224,11 @@ def fetch_strel(strel_id: int):
     cur.execute("SELECT * FROM strels WHERE id = ?", (strel_id,))
     return cur.fetchone()
 
+def fetch_strel_by_message_id(message_id: int):
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM strels WHERE message_id = ?", (message_id,))
+    return cur.fetchone()
+
 def fetch_strel_players(strel_id: int):
     cur = conn.cursor()
     cur.execute(
