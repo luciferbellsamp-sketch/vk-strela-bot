@@ -991,13 +991,16 @@ async def strela_handler(message: Message, raw: str):
     strel_id = create_strel(chat_id, message.peer_id, message.from_id, parsed)
     text = f"@all\n\n{await build_strel_text(strel_id)}"
 
-    sent_message_id = await bot.api.messages.send(
+    result = await bot.api.messages.send(
         peer_id=message.peer_id,
         random_id=0,
         message=text,
         keyboard=build_strel_keyboard(strel_id),
     )
-    set_strel_message_id(strel_id, int(sent_message_id))
+
+    print("DEBUG SEND RESULT:", result)
+
+    set_strel_message_id(strel_id, int(result))
 
     server_num = None
     parsed_server_lower = parsed.server_name.lower()
