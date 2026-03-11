@@ -544,22 +544,40 @@ async def scheduler_loop() -> None:
     while True:
         try:
             cleanup_old_bizwars()
+
             rows = list_today_bizwars(CHAT_ID) if CHAT_ID else []
             now_obj = now()
 
+            print("DEBUG CHAT_ID:", CHAT_ID)
+            print("DEBUG NOW:", now_obj.strftime("%d.%m %H:%M:%S"))
+            print("DEBUG ROWS COUNT:", len(rows))
+
             for row in rows:
-                war_dt = datetime.strptime(f"{row['war_date']} {row['war_time']}", "%d.%m %H:%M")
+                war_dt = datetime.strptime(
+                    f"{row['war_date']} {row['war_time']}",
+                    "%d.%m %H:%M"
+                ).replace(year=now_obj.year, tzinfo=MSK)
+
                 delta = (war_dt - now_obj).total_seconds()
+
+                print("DEBUG BIZWAR:", dict(row))
+                print("DEBUG DELTA:", delta, "NOTIFIED:", row["notified"])
 
                 if 0 <= delta <= 1800 and not row["notified"]:
                     try:
                         await bot.api.messages.send(
                             peer_id=2000000000 + row["chat_id"],
                             random_id=0,
-                            message=f"@all\nЧерез 30 минут бизвар: {row['war_time']} vs {row['enemy']} ({SERVER_MAP.get(row['server_num'], row['server_num'])}) [{row['player_count']}x{row['player_count']}]",
+                            message=(
+                                f"@all\n"
+                                f"Через 30 минут стрела: {row['war_time']} "
+                                f"({SERVER_MAP.get(row['server_num'], row['server_num'])}) "
+                                f"[{row['player_count']}x{row['player_count']}]"
+                            ),
                         )
-                    except Exception:
-                        pass
+                        print("DEBUG REMINDER SENT OK")
+                    except Exception as e:
+                        print("DEBUG REMINDER SEND ERROR:", e)
 
                     cur = conn.cursor()
                     cur.execute("UPDATE bizwars SET notified = 1 WHERE id = ?", (row["id"],))
