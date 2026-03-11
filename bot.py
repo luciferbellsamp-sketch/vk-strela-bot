@@ -374,14 +374,17 @@ async def help_handler(message: Message):
 async def strela_handler(message: Message, raw: str):
     if message.from_id is None or message.peer_id is None:
         return
+
     if message.peer_id < 2_000_000_000:
         await message.answer("Эта команда работает только в беседе.")
         return
 
     chat_id = message.peer_id - 2_000_000_000
+
     if CHAT_ID and chat_id != CHAT_ID:
         await message.answer("Бот настроен для другой беседы.")
         return
+
     if not is_moderator(message.from_id):
         await message.answer("У тебя нет прав на эту команду.")
         return
@@ -391,20 +394,20 @@ async def strela_handler(message: Message, raw: str):
         await message.answer("Формат: /strela 4 Mirage 17:00 дигл шот рифла")
         return
 
-        strel_id = create_strel(chat_id, message.peer_id, message.from_id, parsed)
-        text = f"@all\n\n{await build_strel_text(strel_id)}"
+    strel_id = create_strel(chat_id, message.peer_id, message.from_id, parsed)
+    text = f"@all\n\n{await build_strel_text(strel_id)}"
 
-        sent_message_id = await bot.api.messages.send(
-            peer_id=message.peer_id,
-            random_id=0,
-            message=text,
-            keyboard=build_strel_keyboard(strel_id),
-        )
+    sent_message_id = await bot.api.messages.send(
+        peer_id=message.peer_id,
+        random_id=0,
+        message=text,
+        keyboard=build_strel_keyboard(strel_id),
+    )
 
-        msg_info = await bot.api.messages.get_by_id(message_ids=[sent_message_id])
-        conversation_message_id = msg_info.items[0].conversation_message_id
+    msg_info = await bot.api.messages.get_by_id(message_ids=[sent_message_id])
+    conversation_message_id = msg_info.items[0].conversation_message_id
 
-        set_strel_message(strel_id, conversation_message_id)
+    set_strel_message(strel_id, conversation_message_id)
 
 
 @bot.on.message(text="/strels")
