@@ -59,7 +59,7 @@ def init_db() -> None:
             event_date TEXT NOT NULL,
             event_time TEXT NOT NULL,
             comment TEXT DEFAULT '',
-            conversation_message_id INTEGER,
+            message_id INTEGER,
             created_at INTEGER NOT NULL,
             is_active INTEGER NOT NULL DEFAULT 1
         )
@@ -133,18 +133,14 @@ class StrelData:
 
 MENTION_RE = re.compile(r"\[id(\d+)\|[^\]]+\]|@id(\d+)|\[club(\d+)\|[^\]]+\]|@club(\d+)")
 
-
 def now_ts() -> int:
     return int(time.time())
-
 
 def today_str() -> str:
     return datetime.now().strftime("%d.%m")
 
-
 def is_moderator(user_id: int) -> bool:
     return user_id in MODERATOR_IDS
-
 
 def extract_user_id(raw: str) -> Optional[int]:
     m = MENTION_RE.search(raw)
@@ -155,7 +151,6 @@ def extract_user_id(raw: str) -> Optional[int]:
             return int(group)
     return None
 
-
 def parse_count(value: str) -> Optional[int]:
     value = value.lower().replace("х", "x")
     if "x" in value:
@@ -163,42 +158,58 @@ def parse_count(value: str) -> Optional[int]:
         return int(left) if left.isdigit() else None
     return int(value) if value.isdigit() else None
 
-
 def parse_strela_command(text: str) -> Optional[StrelData]:
     # !strela 4x4 Mirage 10.03 17:00 Дигл шот
     parts = text.strip().split(maxsplit=5)
     if len(parts) < 5:
         return None
+
     cmd, count_raw, server_name, event_date, event_time = parts[:5]
     if cmd.lower() not in {"!strela", "/strela"}:
         return None
+
     count_slots = parse_count(count_raw)
     if not count_slots or count_slots < 1 or count_slots > 20:
         return None
+
     if not re.match(r"^\d{2}\.\d{2}$", event_date):
         return None
+
     if not re.match(r"^\d{1,2}:\d{2}$", event_time):
         return None
-    comment = parts[5] if len(parts) > 5 else ""
-    return StrelData(count_slots=count_slots, server_name=server_name, event_date=event_date, event_time=event_time, comment=comment)
 
+    comment = parts[5] if len(parts) > 5 else ""
+    return StrelData(
+        count_slots=count_slots,
+        server_name=server_name,
+        event_date=event_date,
+        event_time=event_time,
+        comment=comment,
+    )
 
 def build_strel_keyboard(strel_id: int) -> str:
     return (
         Keyboard(inline=True)
-        .add(Callback("✅ Взять слот", payload={"cmd": "join_strel", "strel_id": strel_id}), color=KeyboardButtonColor.POSITIVE)
-        .add(Callback("❌ Покинуть слот", payload={"cmd": "leave_strel", "strel_id": strel_id}), color=KeyboardButtonColor.NEGATIVE)
+        .add(
+            Callback("✅ Взять слот", payload={"cmd": "join_strel", "strel_id": strel_id}),
+            color=KeyboardButtonColor.POSITIVE,
+        )
+        .add(
+            Callback("❌ Покинуть слот", payload={"cmd": "leave_strel", "strel_id": strel_id}),
+            color=KeyboardButtonColor.NEGATIVE,
+        )
         .row()
-        .add(Callback("🔄 Обновить", payload={"cmd": "refresh_strel", "strel_id": strel_id}), color=KeyboardButtonColor.SECONDARY)
+        .add(
+            Callback("🔄 Обновить", payload={"cmd": "refresh_strel", "strel_id": strel_id}),
+            color=KeyboardButtonColor.SECONDARY,
+        )
         .get_json()
     )
-
 
 def fetch_strel(strel_id: int):
     cur = conn.cursor()
     cur.execute("SELECT * FROM strels WHERE id = ?", (strel_id,))
     return cur.fetchone()
-
 
 def fetch_strel_players(strel_id: int):
     cur = conn.cursor()
@@ -208,12 +219,10 @@ def fetch_strel_players(strel_id: int):
     )
     return cur.fetchall()
 
-
 def fetch_player_entry(strel_id: int, user_id: int):
     cur = conn.cursor()
     cur.execute("SELECT * FROM strel_players WHERE strel_id = ? AND user_id = ?", (strel_id, user_id))
     return cur.fetchone()
-
 
 def create_strel(chat_id: int, peer_id: int, creator_id: int, data: StrelData) -> int:
     cur = conn.cursor()
@@ -222,17 +231,25 @@ def create_strel(chat_id: int, peer_id: int, creator_id: int, data: StrelData) -
         INSERT INTO strels (chat_id, peer_id, creator_id, count_slots, server_name, event_date, event_time, comment, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (chat_id, peer_id, creator_id, data.count_slots, data.server_name, data.event_date, data.event_time, data.comment, now_ts()),
+        (
+            chat_id,
+            peer_id,
+            creator_id,
+            data.count_slots,
+            data.server_name,
+            data.event_date,
+            data.event_time,
+            data.comment,
+            now_ts(),
+        ),
     )
     conn.commit()
     return cur.lastrowid
 
-
-def set_strel_cmid(strel_id: int, cmid: int) -> None:
+def set_strel_message_id(strel_id: int, message_id: int) -> None:
     cur = conn.cursor()
-    cur.execute("UPDATE strels SET conversation_message_id = ? WHERE id = ?", (cmid, strel_id))
+    cur.execute("UPDATE strels SET message_id = ? WHERE id = ?", (message_id, strel_id))
     conn.commit()
-
 
 def get_next_free_position(strel_id: int, slot_type: str, limit: int) -> Optional[int]:
     cur = conn.cursor()
@@ -246,7 +263,6 @@ def get_next_free_position(strel_id: int, slot_type: str, limit: int) -> Optiona
             return i
     return None
 
-
 def log_activity(chat_id: int, user_id: int, action: str) -> None:
     cur = conn.cursor()
     cur.execute(
@@ -255,11 +271,11 @@ def log_activity(chat_id: int, user_id: int, action: str) -> None:
     )
     conn.commit()
 
-
 def rebalance_strel(strel_id: int) -> None:
     strel = fetch_strel(strel_id)
     if not strel:
         return
+
     players = fetch_strel_players(strel_id)
     all_users = [row["user_id"] for row in players]
 
@@ -282,13 +298,14 @@ def rebalance_strel(strel_id: int) -> None:
             "INSERT INTO strel_players (strel_id, user_id, slot_type, position) VALUES (?, ?, 'reserve', ?)",
             (strel_id, user_id, idx),
         )
-    conn.commit()
 
+    conn.commit()
 
 def add_user_to_strel(strel_id: int, user_id: int) -> tuple[bool, str]:
     strel = fetch_strel(strel_id)
     if not strel or not strel["is_active"]:
         return False, "Стрела не найдена или уже закрыта."
+
     if fetch_player_entry(strel_id, user_id):
         return False, "Ты уже записан."
 
@@ -305,8 +322,7 @@ def add_user_to_strel(strel_id: int, user_id: int) -> tuple[bool, str]:
             (strel_id, user_id, preferred, preferred_pos),
         )
         conn.commit()
-        chat_id = strel["chat_id"]
-        log_activity(chat_id, user_id, "join")
+        log_activity(strel["chat_id"], user_id, "join")
         if preferred == "main":
             return True, f"Ты записан в основу #{preferred_pos}."
         return True, f"Ты записан в резерв #{preferred_pos}."
@@ -324,20 +340,22 @@ def add_user_to_strel(strel_id: int, user_id: int) -> tuple[bool, str]:
 
     return False, "Свободных мест нет."
 
-
 def remove_user_from_strel(strel_id: int, user_id: int) -> tuple[bool, str]:
     entry = fetch_player_entry(strel_id, user_id)
     if not entry:
         return False, "Тебя нет в списке этой стрелы."
+
     cur = conn.cursor()
     cur.execute("DELETE FROM strel_players WHERE strel_id = ? AND user_id = ?", (strel_id, user_id))
     conn.commit()
+
     rebalance_strel(strel_id)
+
     strel = fetch_strel(strel_id)
     if strel:
         log_activity(strel["chat_id"], user_id, "leave")
-    return True, "Ты удален из слотов."
 
+    return True, "Ты удален из слотов."
 
 def set_mute(chat_id: int, user_id: int, minutes: int) -> int:
     until_ts = int((datetime.now() + timedelta(minutes=minutes)).timestamp())
@@ -345,7 +363,6 @@ def set_mute(chat_id: int, user_id: int, minutes: int) -> int:
     cur.execute("REPLACE INTO mutes (user_id, chat_id, until_ts) VALUES (?, ?, ?)", (user_id, chat_id, until_ts))
     conn.commit()
     return until_ts
-
 
 def get_active_mute(chat_id: int, user_id: int) -> Optional[int]:
     cur = conn.cursor()
@@ -359,15 +376,13 @@ def get_active_mute(chat_id: int, user_id: int) -> Optional[int]:
         return None
     return row["until_ts"]
 
-
-def add_bizwar(chat_id: int, war_time: str, enemy: str, server_num: int, player_count: int) -> None:
+def add_bizwar(chat_id: int, war_time: str, enemy: str, server_num: int, player_count: int, war_date: Optional[str] = None) -> None:
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO bizwars (chat_id, war_date, war_time, enemy, server_num, player_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (chat_id, today_str(), war_time, enemy.lower(), server_num, player_count, now_ts()),
+        (chat_id, war_date or today_str(), war_time, enemy.lower(), server_num, player_count, now_ts()),
     )
     conn.commit()
-
 
 def list_today_bizwars(chat_id: int):
     cur = conn.cursor()
@@ -377,7 +392,6 @@ def list_today_bizwars(chat_id: int):
     )
     return cur.fetchall()
 
-
 def cleanup_old_bizwars() -> None:
     cur = conn.cursor()
     current_hm = datetime.now().strftime("%H:%M")
@@ -386,7 +400,6 @@ def cleanup_old_bizwars() -> None:
     if datetime.now().hour >= 22:
         cur.execute("DELETE FROM bizwars WHERE war_date = ?", (today_str(),))
     conn.commit()
-
 
 def get_top(chat_id: int, days: int):
     since_ts = now_ts() - days * 86400
@@ -404,7 +417,6 @@ def get_top(chat_id: int, days: int):
     )
     return cur.fetchall()
 
-
 async def build_strel_text(strel_id: int) -> str:
     strel = fetch_strel(strel_id)
     if not strel:
@@ -421,38 +433,44 @@ async def build_strel_text(strel_id: int) -> str:
     lines = ["⚔️ Сбор на стрелу", "", title, "", "Основа:"]
     for i in range(1, strel["count_slots"] + 1):
         lines.append(f"{i}) [id{main_map[i]}|Игрок]" if i in main_map else f"{i})")
+
     lines.extend(["", "Резерв:"])
     for i in range(1, strel["count_slots"] + 1):
         lines.append(f"{i}. [id{reserve_map[i]}|Игрок]" if i in reserve_map else f"{i}.")
+
     lines.extend(["", f"ID стрелы: {strel_id}"])
     return "\n".join(lines)
 
-
-async def update_strel_message(strel_id: int) -> None:
+async def resend_strel_message(strel_id: int) -> None:
     strel = fetch_strel(strel_id)
     if not strel:
-        print(f"DEBUG: strel {strel_id} not found")
         return
 
     text = await build_strel_text(strel_id)
-    print("DEBUG TEXT:")
-    print(text)
 
-    result = await bot.api.request(
-        "messages.edit",
-        {
-            "peer_id": strel["peer_id"],
-            "cmid": strel["conversation_message_id"],
-            "message": text,
-            "keyboard": build_strel_keyboard(strel_id),
-        },
+    old_message_id = strel["message_id"]
+    if old_message_id:
+        try:
+            await bot.api.messages.delete(
+                message_ids=[old_message_id],
+                delete_for_all=True,
+            )
+        except Exception:
+            pass
+
+    new_message_id = await bot.api.messages.send(
+        peer_id=strel["peer_id"],
+        random_id=0,
+        message=text,
+        keyboard=build_strel_keyboard(strel_id),
     )
-    print("DEBUG EDIT RESULT:", result)
 
+    set_strel_message_id(strel_id, int(new_message_id))
 
 async def send_weekly_reports() -> None:
     since_ts = now_ts() - 7 * 86400
     cur = conn.cursor()
+
     for moderator_id in MODERATOR_IDS:
         cur.execute(
             """
@@ -465,8 +483,6 @@ async def send_weekly_reports() -> None:
             (since_ts,),
         )
         rows = cur.fetchall()
-        active_map = {row["user_id"]: row["cnt"] for row in rows}
-        inactive = [uid for uid in active_map.keys() if active_map[uid] == 0]
 
         text_lines = ["Еженедельный отчет:", "", "Активность:"]
         if rows:
@@ -474,13 +490,6 @@ async def send_weekly_reports() -> None:
                 text_lines.append(f"[id{row['user_id']}|Игрок] — {row['cnt']}")
         else:
             text_lines.append("За неделю активности не было.")
-
-        text_lines.extend(["", "Неактивные:"])
-        if inactive:
-            for uid in inactive:
-                text_lines.append(f"[id{uid}|Игрок]")
-        else:
-            text_lines.append("Нет данных по неактивным.")
 
         try:
             await bot.api.messages.send(
@@ -491,17 +500,19 @@ async def send_weekly_reports() -> None:
         except Exception:
             pass
 
-
 async def scheduler_loop() -> None:
     last_weekly_day = None
+
     while True:
         try:
             cleanup_old_bizwars()
             rows = list_today_bizwars(CHAT_ID) if CHAT_ID else []
             now_obj = datetime.now()
+
             for row in rows:
                 war_dt = datetime.strptime(f"{row['war_date']} {row['war_time']}", "%d.%m %H:%M")
                 delta = (war_dt - now_obj).total_seconds()
+
                 if 0 <= delta <= 1800 and not row["notified"]:
                     try:
                         await bot.api.messages.send(
@@ -511,6 +522,7 @@ async def scheduler_loop() -> None:
                         )
                     except Exception:
                         pass
+
                     cur = conn.cursor()
                     cur.execute("UPDATE bizwars SET notified = 1 WHERE id = ?", (row["id"],))
                     conn.commit()
@@ -522,11 +534,11 @@ async def scheduler_loop() -> None:
                 if last_weekly_day != day_key:
                     await send_weekly_reports()
                     last_weekly_day = day_key
+
         except Exception as e:
             print(f"SCHEDULER ERROR: {e}")
 
         await asyncio.sleep(60)
-
 
 # =========================================================
 # COMMANDS
@@ -535,11 +547,9 @@ async def scheduler_loop() -> None:
 async def ping_handler(message: Message):
     await message.answer("Бот работает ✅")
 
-
 @bot.on.message(text=["/myid", "!myid"])
 async def myid_handler(message: Message):
     await message.answer(f"Твой ID: {message.from_id}")
-
 
 @bot.on.message(text=["/chatid", "!chatid"])
 async def chatid_handler(message: Message):
@@ -547,7 +557,6 @@ async def chatid_handler(message: Message):
         await message.answer(f"Chat ID: {message.peer_id - 2_000_000_000}")
     else:
         await message.answer("Команда работает только в беседе.")
-
 
 @bot.on.message(text=["/help", "!help"])
 async def help_handler(message: Message):
@@ -564,19 +573,21 @@ async def help_handler(message: Message):
         "!топ 30"
     )
 
-
 @bot.on.message(text=["!strela <raw>", "/strela <raw>"])
 async def strela_handler(message: Message, raw: str):
     if message.from_id is None or message.peer_id is None:
         return
+
     if message.peer_id < 2_000_000_000:
         await message.answer("Эта команда работает только в беседе.")
         return
 
     chat_id = message.peer_id - 2_000_000_000
+
     if CHAT_ID and chat_id != CHAT_ID:
         await message.answer("Бот настроен для другой беседы.")
         return
+
     if not is_moderator(message.from_id):
         await message.answer("У тебя нет прав на эту команду.")
         return
@@ -588,46 +599,34 @@ async def strela_handler(message: Message, raw: str):
 
     strel_id = create_strel(chat_id, message.peer_id, message.from_id, parsed)
     text = f"@all\n\n{await build_strel_text(strel_id)}"
-    
+
     sent_message_id = await bot.api.messages.send(
         peer_id=message.peer_id,
         random_id=0,
         message=text,
         keyboard=build_strel_keyboard(strel_id),
     )
+    set_strel_message_id(strel_id, int(sent_message_id))
 
-    msg_info = await bot.api.request(
-        "messages.getById",
-        {"message_ids": sent_message_id},
-    )
-
-    cmid = msg_info["items"][0]["conversation_message_id"]
-
-    set_strel_cmid(strel_id, cmid)
-
-    # автоматически добавляем стрелу в расписание на сегодня/указанную дату
     server_num = None
     parsed_server_lower = parsed.server_name.lower()
     for num, name in SERVER_MAP.items():
         if name.lower() == parsed_server_lower:
             server_num = num
             break
-    if server_num is not None:
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO bizwars (chat_id, war_date, war_time, enemy, server_num, player_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (chat_id, parsed.event_date, parsed.event_time, "strela", server_num, parsed.count_slots, now_ts()),
-        )
-        conn.commit()
 
+    if server_num is not None:
+        add_bizwar(chat_id, parsed.event_time, "strela", server_num, parsed.count_slots, parsed.event_date)
 
 @bot.on.message(text=["!bizwar", "/bizwar", "!strels", "/strels"])
 async def bizwar_list_handler(message: Message):
     if message.peer_id is None or message.peer_id < 2_000_000_000:
         return
+
     cleanup_old_bizwars()
     chat_id = message.peer_id - 2_000_000_000
     rows = list_today_bizwars(chat_id)
+
     if not rows:
         await message.answer("Стрел на сегодня пока не запланировано.")
         return
@@ -640,9 +639,8 @@ async def bizwar_list_handler(message: Message):
             lines.append(f"{row['war_time']} ({server_name}) [{row['player_count']}x{row['player_count']}]")
         else:
             lines.append(f"{row['war_time']} vs {enemy} ({server_name}) [{row['player_count']}x{row['player_count']}]")
+
     await message.answer("\n".join(lines))
-
-
 
 @bot.on.message(text=["!add <strel_id> <target>", "/add <strel_id> <target>"])
 async def add_handler(message: Message, strel_id: str, target: str):
@@ -652,6 +650,7 @@ async def add_handler(message: Message, strel_id: str, target: str):
     if not strel_id.isdigit():
         await message.answer("Укажи корректный ID стрелы.")
         return
+
     user_id = extract_user_id(target)
     if not user_id:
         await message.answer("Не смог определить пользователя.")
@@ -661,13 +660,14 @@ async def add_handler(message: Message, strel_id: str, target: str):
     if not strel:
         await message.answer("Стрела не найдена.")
         return
+
     if fetch_player_entry(int(strel_id), user_id):
         await message.answer("Пользователь уже записан.")
         return
 
     pos = get_next_free_position(int(strel_id), "main", strel["count_slots"])
     if pos is None:
-        await message.answer("В основе мест нет. Используй обычную запись или remove/add.")
+        await message.answer("В основе мест нет.")
         return
 
     cur = conn.cursor()
@@ -676,9 +676,9 @@ async def add_handler(message: Message, strel_id: str, target: str):
         (int(strel_id), user_id, pos),
     )
     conn.commit()
-    await update_strel_message(int(strel_id))
-    await message.answer("Игрок добавлен в основу.")
 
+    await resend_strel_message(int(strel_id))
+    await message.answer("Игрок добавлен в основу.")
 
 @bot.on.message(text=["!remove <strel_id> <target>", "/remove <strel_id> <target>"])
 async def remove_handler(message: Message, strel_id: str, target: str):
@@ -688,6 +688,7 @@ async def remove_handler(message: Message, strel_id: str, target: str):
     if not strel_id.isdigit():
         await message.answer("Укажи корректный ID стрелы.")
         return
+
     user_id = extract_user_id(target)
     if not user_id:
         await message.answer("Не смог определить пользователя.")
@@ -695,9 +696,8 @@ async def remove_handler(message: Message, strel_id: str, target: str):
 
     ok, text = remove_user_from_strel(int(strel_id), user_id)
     if ok:
-        await update_strel_message(int(strel_id))
+        await resend_strel_message(int(strel_id))
     await message.answer(text)
-
 
 @bot.on.message(text=["!вызов <text>", "/вызов <text>", "!all <text>", "/all <text>"])
 async def call_handler(message: Message, text: str):
@@ -705,7 +705,6 @@ async def call_handler(message: Message, text: str):
         await message.answer("У тебя нет прав на эту команду.")
         return
     await message.answer(f"@all\n{text}")
-
 
 @bot.on.message(text=["!mute <target> <minutes>", "/mute <target> <minutes>"])
 async def mute_handler(message: Message, target: str, minutes: str):
@@ -731,7 +730,6 @@ async def mute_handler(message: Message, target: str, minutes: str):
     until_str = datetime.fromtimestamp(until_ts).strftime("%H:%M")
     await message.answer(f"[id{user_id}|Пользователь] получил мут на {minutes} минут. До {until_str}.")
 
-
 @bot.on.message(text=["!топ <days>", "/топ <days>"])
 async def top_handler(message: Message, days: str):
     if message.peer_id is None or message.peer_id < 2_000_000_000:
@@ -739,15 +737,17 @@ async def top_handler(message: Message, days: str):
     if days not in {"7", "30"}:
         await message.answer("Используй !топ 7 или !топ 30")
         return
+
     rows = get_top(message.peer_id - 2_000_000_000, int(days))
     if not rows:
         await message.answer("За этот период активности нет.")
         return
+
     lines = [f"Топ за {days} дней:"]
     for idx, row in enumerate(rows, start=1):
         lines.append(f"{idx}) [id{row['user_id']}|Игрок] — {row['cnt']}")
-    await message.answer("\n".join(lines))
 
+    await message.answer("\n".join(lines))
 
 # =========================================================
 # CALLBACKS
@@ -774,13 +774,13 @@ async def handle_message_event(event: GroupTypes.MessageEvent):
     try:
         if cmd == "join_strel":
             _, text = add_user_to_strel(strel_id, user_id)
-            await update_strel_message(strel_id)
+            await resend_strel_message(strel_id)
         elif cmd == "leave_strel":
             _, text = remove_user_from_strel(strel_id, user_id)
-            await update_strel_message(strel_id)
+            await resend_strel_message(strel_id)
         elif cmd == "refresh_strel":
             text = "Список обновлен."
-            await update_strel_message(strel_id)
+            await resend_strel_message(strel_id)
         else:
             text = "Неизвестная команда."
 
@@ -790,7 +790,7 @@ async def handle_message_event(event: GroupTypes.MessageEvent):
             peer_id=peer_id,
             event_data={"type": "show_snackbar", "text": text},
         )
-    except Exception as e:
+    except Exception:
         await bot.api.messages.send_message_event_answer(
             event_id=event.object.event_id,
             user_id=user_id,
@@ -799,13 +799,13 @@ async def handle_message_event(event: GroupTypes.MessageEvent):
         )
         raise
 
-
 @bot.on.message()
 async def mute_guard(message: Message):
     if message.from_id is None or message.peer_id is None:
         return
     if message.peer_id < 2_000_000_000:
         return
+
     chat_id = message.peer_id - 2_000_000_000
     until_ts = get_active_mute(chat_id, message.from_id)
     if until_ts:
@@ -817,7 +817,6 @@ async def mute_guard(message: Message):
             )
         except Exception:
             pass
-
 
 # =========================================================
 # START
