@@ -623,9 +623,9 @@ async def chatid_handler(message: Message):
 async def help_handler(message: Message):
     await message.answer(
         "Команды:\n"
-        "!strela 4x4 Mirage 10.03 17:00 Дигл шот\n"
+        "!strela - забить стрелу. Пример: !strela 4x4 Mirage 10.03 17:00 Дигл шот\n"
         "!bizwar — показать стрелы на сегодня\n"
-        "!add ID @user\n"
+        "!add ID @user main|reserve\n"
         "!remove ID @user\n"
         "!вызов текст\n"
         "!all текст\n"
