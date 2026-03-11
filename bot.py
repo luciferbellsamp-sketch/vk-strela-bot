@@ -611,6 +611,27 @@ async def resend_strel_message(strel_id: int) -> None:
 
     set_strel_message_id(strel_id, int(new_message_id))
 
+async def update_strel_message(strel_id: int) -> None:
+    strel = fetch_strel(strel_id)
+    if not strel:
+        return
+
+    if not strel["message_id"]:
+        print(f"EDIT ERROR: no message_id for strel {strel_id}")
+        return
+
+    text = await build_strel_text(strel_id)
+
+    try:
+        await bot.api.messages.edit(
+            peer_id=strel["peer_id"],
+            message_id=int(strel["message_id"]),
+            message=text,
+            keyboard=build_strel_keyboard(strel_id),
+        )
+    except Exception as e:
+        print("EDIT ERROR:", e)
+
 async def send_weekly_reports() -> None:
     since_ts = now_ts() - 7 * 86400
     cur = conn.cursor()
@@ -802,6 +823,80 @@ async def memberdel_handler(message: Message, target: str):
     chat_id = message.peer_id - 2_000_000_000
     remove_member(chat_id, user_id)
     await message.answer(f"[id{user_id}|Пользователь] удалён из списка участников для отчётов.")
+
+@bot.on.message(text=["+", "+ "])
+async def plus_handler(message: Message):
+    if message.from_id is None or message.peer_id is None:
+        return
+
+    if message.peer_id < 2_000_000_000:
+        return
+
+    if not message.reply_message:
+        await message.answer("Напиши + ответом на сообщение стрелы.")
+        return
+
+    replied_message_id = getattr(message.reply_message, "id", None)
+    if not replied_message_id:
+        await message.answer("Не удалось определить сообщение стрелы.")
+        return
+
+    strel = fetch_strel_by_message_id(int(replied_message_id))
+    if not strel:
+        await message.answer("Это не сообщение стрелы.")
+        return
+
+    ok, text = add_user_to_strel(strel["id"], message.from_id)
+    if ok:
+        await update_strel_message(strel["id"])
+
+    try:
+        await bot.api.messages.delete(
+            peer_id=message.peer_id,
+            cmids=[message.conversation_message_id],
+            delete_for_all=True,
+        )
+    except Exception:
+        pass
+
+    await message.answer(text)
+
+@bot.on.message(text=["-", "- "])
+async def minus_handler(message: Message):
+    if message.from_id is None or message.peer_id is None:
+        return
+
+    if message.peer_id < 2_000_000_000:
+        return
+
+    if not message.reply_message:
+        await message.answer("Напиши - ответом на сообщение стрелы.")
+        return
+
+    replied_message_id = getattr(message.reply_message, "id", None)
+    if not replied_message_id:
+        await message.answer("Не удалось определить сообщение стрелы.")
+        return
+
+    strel = fetch_strel_by_message_id(int(replied_message_id))
+    if not strel:
+        await message.answer("Это не сообщение стрелы.")
+        return
+
+    ok, text = remove_user_from_strel(strel["id"], message.from_id)
+    if ok:
+        await update_strel_message(strel["id"])
+
+    try:
+        await bot.api.messages.delete(
+            peer_id=message.peer_id,
+            cmids=[message.conversation_message_id],
+            delete_for_all=True,
+        )
+    except Exception:
+        pass
+
+    await message.answer(text)
 
 @bot.on.message(text=["!activ", "/activ"])
 async def activ_handler(message: Message):
@@ -1064,13 +1159,13 @@ async def handle_message_event(event: GroupTypes.MessageEvent):
     try:
         if cmd == "join_strel":
             _, text = add_user_to_strel(strel_id, user_id)
-            await resend_strel_message(strel_id)
+            await update_strel_message(strel_id)
         elif cmd == "leave_strel":
             _, text = remove_user_from_strel(strel_id, user_id)
-            await resend_strel_message(strel_id)
+            await update_strel_message(strel_id)
         elif cmd == "refresh_strel":
             text = "Список обновлен."
-            await resend_strel_message(strel_id)
+            await update_strel_message(strel_id)
         else:
             text = "Неизвестная команда."
 
