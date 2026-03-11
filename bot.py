@@ -103,6 +103,16 @@ def init_db() -> None:
         )
         """
     )
+        cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS members (
+            user_id INTEGER NOT NULL,
+            chat_id INTEGER NOT NULL,
+            added_at INTEGER NOT NULL,
+            PRIMARY KEY(user_id, chat_id)
+        )
+        """
+    )
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS activity (
@@ -221,6 +231,26 @@ def fetch_strel_players(strel_id: int):
         (strel_id,),
     )
     return cur.fetchall()
+async def get_user_names(user_ids: list[int]) -> dict[int, str]:
+    if not user_ids:
+        return {}
+
+    user_ids = list(set(user_ids))
+
+    try:
+        users = await bot.api.users.get(user_ids=user_ids)
+    except Exception:
+        return {}
+
+    result = {}
+    for user in users:
+        first_name = getattr(user, "first_name", "") or ""
+        last_name = getattr(user, "last_name", "") or ""
+        full_name = f"{first_name} {last_name}".strip()
+        result[user.id] = full_name if full_name else f"id{user.id}"
+
+    return result
+
 async def get_user_names(user_ids: list[int]) -> dict[int, str]:
     if not user_ids:
         return {}
@@ -378,6 +408,77 @@ def remove_user_from_strel(strel_id: int, user_id: int) -> tuple[bool, str]:
         log_activity(strel["chat_id"], user_id, "leave")
 
     return True, "Ты удален из слотов."
+
+def add_member(chat_id: int, user_id: int) -> None:
+    cur = conn.cursor()
+    cur.execute(
+        "REPLACE INTO members (user_id, chat_id, added_at) VALUES (?, ?, ?)",
+        (user_id, chat_id, now_ts()),
+    )
+    conn.commit()
+
+
+def remove_member(chat_id: int, user_id: int) -> None:
+    cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM members WHERE user_id = ? AND chat_id = ?",
+        (user_id, chat_id),
+    )
+    conn.commit()
+
+
+def list_members(chat_id: int):
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT user_id FROM members WHERE chat_id = ? ORDER BY user_id ASC",
+        (chat_id,),
+    )
+    return [row["user_id"] for row in cur.fetchall()]
+
+
+def get_last_activity_ts(chat_id: int, user_id: int) -> Optional[int]:
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT created_at
+        FROM activity
+        WHERE chat_id = ? AND user_id = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (chat_id, user_id),
+    )
+    row = cur.fetchone()
+    return row["created_at"] if row else None
+
+
+def get_week_activity(chat_id: int, days: int = 7):
+    since_ts = now_ts() - days * 86400
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT user_id, COUNT(*) as cnt
+        FROM activity
+        WHERE chat_id = ? AND action = 'join' AND created_at >= ?
+        GROUP BY user_id
+        ORDER BY cnt DESC, user_id ASC
+        """,
+        (chat_id, since_ts),
+    )
+    return cur.fetchall()
+
+
+def get_inactive_members(chat_id: int, inactive_days: int = 7) -> list[int]:
+    threshold = now_ts() - inactive_days * 86400
+    members = list_members(chat_id)
+    inactive = []
+
+    for user_id in members:
+        last_ts = get_last_activity_ts(chat_id, user_id)
+        if last_ts is None or last_ts < threshold:
+            inactive.append(user_id)
+
+    return inactive
 
 def set_mute(chat_id: int, user_id: int, minutes: int) -> int:
     until_ts = int((now() + timedelta(minutes=minutes)).timestamp())
@@ -538,6 +639,51 @@ async def send_weekly_reports() -> None:
         except Exception:
             pass
 
+async def send_activity_report() -> None:
+    inactive_days = 7
+
+    if CHAT_ID == 0:
+        print("REPORT ERROR: CHAT_ID не задан")
+        return
+
+    rows = get_week_activity(CHAT_ID, 7)
+    inactive_ids = get_inactive_members(CHAT_ID, inactive_days)
+
+    active_user_ids = [row["user_id"] for row in rows]
+    all_user_ids = list(set(active_user_ids + inactive_ids))
+    user_names = await get_user_names(all_user_ids)
+
+    text_lines = ["Отчёт по активности", ""]
+
+    text_lines.append("Активность за 7 дней:")
+    if rows:
+        for idx, row in enumerate(rows, start=1):
+            uid = row["user_id"]
+            name = user_names.get(uid, f"id{uid}")
+            text_lines.append(f"{idx}) [id{uid}|{name}] — {row['cnt']}")
+    else:
+        text_lines.append("За неделю активности не было.")
+
+    text_lines.extend(["", f"Неактивные более {inactive_days} дней:"])
+    if inactive_ids:
+        for idx, uid in enumerate(inactive_ids, start=1):
+            name = user_names.get(uid, f"id{uid}")
+            text_lines.append(f"{idx}) [id{uid}|{name}]")
+    else:
+        text_lines.append("Неактивных нет.")
+
+    report_text = "\n".join(text_lines)
+
+    for moderator_id in MODERATOR_IDS:
+        try:
+            await bot.api.messages.send(
+                peer_id=moderator_id,
+                random_id=0,
+                message=report_text,
+            )
+        except Exception as e:
+            print(f"REPORT SEND ERROR to {moderator_id}: {e}")
+
 async def scheduler_loop() -> None:
     last_weekly_day = None
 
@@ -612,6 +758,57 @@ async def time_handler(message: Message):
 async def myid_handler(message: Message):
     await message.answer(f"Твой ID: {message.from_id}")
 
+@bot.on.message(text=["!memberadd <target>", "/memberadd <target>"])
+async def memberadd_handler(message: Message, target: str):
+    if message.from_id is None or message.peer_id is None:
+        return
+    if message.peer_id < 2_000_000_000:
+        await message.answer("Команда работает только в беседе.")
+        return
+    if not is_moderator(message.from_id):
+        await message.answer("У тебя нет прав на эту команду.")
+        return
+
+    user_id = extract_user_id(target)
+    if not user_id:
+        await message.answer("Не смог определить пользователя.")
+        return
+
+    chat_id = message.peer_id - 2_000_000_000
+    add_member(chat_id, user_id)
+    await message.answer(f"[id{user_id}|Пользователь] добавлен в список участников для отчётов.")
+
+@bot.on.message(text=["!memberdel <target>", "/memberdel <target>"])
+async def memberdel_handler(message: Message, target: str):
+    if message.from_id is None or message.peer_id is None:
+        return
+    if message.peer_id < 2_000_000_000:
+        await message.answer("Команда работает только в беседе.")
+        return
+    if not is_moderator(message.from_id):
+        await message.answer("У тебя нет прав на эту команду.")
+        return
+
+    user_id = extract_user_id(target)
+    if not user_id:
+        await message.answer("Не смог определить пользователя.")
+        return
+
+    chat_id = message.peer_id - 2_000_000_000
+    remove_member(chat_id, user_id)
+    await message.answer(f"[id{user_id}|Пользователь] удалён из списка участников для отчётов.")
+
+@bot.on.message(text=["!activ", "/activ"])
+async def activ_handler(message: Message):
+    if message.from_id is None:
+        return
+    if not is_moderator(message.from_id):
+        await message.answer("У тебя нет прав на эту команду.")
+        return
+
+    await send_activity_report()
+    await message.answer("Отчёт отправлен модераторам в ЛС.")
+
 @bot.on.message(text=["/chatid", "!chatid"])
 async def chatid_handler(message: Message):
     if message.peer_id and message.peer_id > 2_000_000_000:
@@ -631,6 +828,7 @@ async def help_handler(message: Message):
         "!mute @user 10|30|60 - выдать мут\n"
         "!топ 7 - топ стрелков за неделю\n"
         "!топ 30 - топ стрелком за месяц"
+        "!activ — отправить отчет модераторам в ЛС\n"
     )
 
 @bot.on.message(text=["!strela <raw>", "/strela <raw>"])
