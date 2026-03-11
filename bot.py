@@ -703,11 +703,12 @@ async def bizwar_list_handler(message: Message):
 
     await message.answer("\n".join(lines))
 
-@bot.on.message(text=["!add <strel_id> <target>", "/add <strel_id> <target>"])
-async def add_handler(message: Message, strel_id: str, target: str):
+@bot.on.message(text=["!add <strel_id> <target> <slot_type>", "/add <strel_id> <target> <slot_type>"])
+async def add_handler(message: Message, strel_id: str, target: str, slot_type: str):
     if message.from_id is None or not is_moderator(message.from_id):
         await message.answer("У тебя нет прав на эту команду.")
         return
+
     if not strel_id.isdigit():
         await message.answer("Укажи корректный ID стрелы.")
         return
@@ -715,6 +716,15 @@ async def add_handler(message: Message, strel_id: str, target: str):
     user_id = extract_user_id(target)
     if not user_id:
         await message.answer("Не смог определить пользователя.")
+        return
+
+    slot_type = slot_type.lower()
+    if slot_type in {"основа", "main"}:
+        slot_type = "main"
+    elif slot_type in {"резерв", "reserve"}:
+        slot_type = "reserve"
+    else:
+        await message.answer("Укажи slot_type: main/reserve или основа/резерв")
         return
 
     strel = fetch_strel(int(strel_id))
@@ -726,20 +736,27 @@ async def add_handler(message: Message, strel_id: str, target: str):
         await message.answer("Пользователь уже записан.")
         return
 
-    pos = get_next_free_position(int(strel_id), "main", strel["count_slots"])
+    pos = get_next_free_position(int(strel_id), slot_type, strel["count_slots"])
     if pos is None:
-        await message.answer("В основе мест нет.")
+        if slot_type == "main":
+            await message.answer("В основе мест нет.")
+        else:
+            await message.answer("В резерве мест нет.")
         return
 
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO strel_players (strel_id, user_id, slot_type, position) VALUES (?, ?, 'main', ?)",
-        (int(strel_id), user_id, pos),
+        "INSERT INTO strel_players (strel_id, user_id, slot_type, position) VALUES (?, ?, ?, ?)",
+        (int(strel_id), user_id, slot_type, pos),
     )
     conn.commit()
 
     await resend_strel_message(int(strel_id))
-    await message.answer("Игрок добавлен в основу.")
+
+    if slot_type == "main":
+        await message.answer("Игрок добавлен в основу.")
+    else:
+        await message.answer("Игрок добавлен в резерв.")
 
 @bot.on.message(text=["!remove <strel_id> <target>", "/remove <strel_id> <target>"])
 async def remove_handler(message: Message, strel_id: str, target: str):
