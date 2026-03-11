@@ -218,6 +218,25 @@ def fetch_strel_players(strel_id: int):
         (strel_id,),
     )
     return cur.fetchall()
+async def get_user_names(user_ids: list[int]) -> dict[int, str]:
+    if not user_ids:
+        return {}
+
+    user_ids = list(set(user_ids))
+
+    try:
+        users = await bot.api.users.get(user_ids=user_ids)
+    except Exception:
+        return {}
+
+    result = {}
+    for user in users:
+        first_name = getattr(user, "first_name", "") or ""
+        last_name = getattr(user, "last_name", "") or ""
+        full_name = f"{first_name} {last_name}".strip()
+        result[user.id] = full_name if full_name else f"id{user.id}"
+
+    return result
 
 def fetch_player_entry(strel_id: int, user_id: int):
     cur = conn.cursor()
