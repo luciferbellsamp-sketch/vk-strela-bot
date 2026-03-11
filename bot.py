@@ -430,15 +430,30 @@ async def build_strel_text(strel_id: int) -> str:
 
 async def update_strel_message(strel_id: int) -> None:
     strel = fetch_strel(strel_id)
-    if not strel or not strel["conversation_message_id"]:
+    if not strel:
+        print(f"DEBUG: strel {strel_id} not found")
         return
 
-    await bot.api.messages.edit(
+    print(
+        "DEBUG STREL:",
+        {
+            "id": strel["id"],
+            "peer_id": strel["peer_id"],
+            "conversation_message_id": strel["conversation_message_id"],
+        },
+    )
+
+    text = await build_strel_text(strel_id)
+    print("DEBUG TEXT:")
+    print(text)
+
+    result = await bot.api.messages.edit(
         peer_id=strel["peer_id"],
         conversation_message_id=strel["conversation_message_id"],
-        message=await build_strel_text(strel_id),
+        message=text,
         keyboard=build_strel_keyboard(strel_id),
     )
+    print("DEBUG EDIT RESULT:", result)
 
 
 async def send_weekly_reports() -> None:
