@@ -2,7 +2,6 @@ import os
 import re
 import sqlite3
 import time
-import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
@@ -516,7 +515,7 @@ async def scheduler_loop() -> None:
         except Exception as e:
             print(f"SCHEDULER ERROR: {e}")
 
-        await asyncio.sleep(60)
+        await bot.loop_wrapper.interval(60)
 
 
 # =========================================================
@@ -545,8 +544,7 @@ async def help_handler(message: Message):
     await message.answer(
         "Команды:\n"
         "!strela 4x4 Mirage 10.03 17:00 Дигл шот\n"
-        "!bizwar 16:00 lcn 13 3\n"
-        "!strels\n"
+        "!bizwar — показать стрелы на сегодня\n"
         "!add ID @user\n"
         "!remove ID @user\n"
         "!вызов текст\n"
@@ -589,9 +587,24 @@ async def strela_handler(message: Message, raw: str):
     )
     set_strel_cmid(strel_id, cmid)
 
+    # автоматически добавляем стрелу в расписание на сегодня/указанную дату
+    server_num = None
+    parsed_server_lower = parsed.server_name.lower()
+    for num, name in SERVER_MAP.items():
+        if name.lower() == parsed_server_lower:
+            server_num = num
+            break
+    if server_num is not None:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO bizwars (chat_id, war_date, war_time, enemy, server_num, player_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (chat_id, parsed.event_date, parsed.event_time, "strela", server_num, parsed.count_slots, now_ts()),
+        )
+        conn.commit()
 
-@bot.on.message(text=["!strels", "/strels"])
-async def strels_handler(message: Message):
+
+@bot.on.message(text=["!bizwar", "/bizwar", "!strels", "/strels"])
+async def bizwar_list_handler(message: Message):
     if message.peer_id is None or message.peer_id < 2_000_000_000:
         return
     cleanup_old_bizwars()
@@ -604,31 +617,13 @@ async def strels_handler(message: Message):
     lines = [f"{today_str()}:"]
     for row in rows:
         server_name = SERVER_MAP.get(row["server_num"], row["server_num"])
-        lines.append(f"{row['war_time']} vs {row['enemy']} ({server_name}) [{row['player_count']}x{row['player_count']}]")
+        enemy = row["enemy"]
+        if enemy == "strela":
+            lines.append(f"{row['war_time']} ({server_name}) [{row['player_count']}x{row['player_count']}]")
+        else:
+            lines.append(f"{row['war_time']} vs {enemy} ({server_name}) [{row['player_count']}x{row['player_count']}]")
     await message.answer("\n".join(lines))
 
-
-@bot.on.message(text=["!bizwar <war_time> <enemy> <server_num> <player_count>", "/bizwar <war_time> <enemy> <server_num> <player_count>"])
-async def bizwar_handler(message: Message, war_time: str, enemy: str, server_num: str, player_count: str):
-    if message.from_id is None or message.peer_id is None:
-        return
-    if not is_moderator(message.from_id):
-        await message.answer("У тебя нет прав на эту команду.")
-        return
-    if not re.match(r"^\d{1,2}:\d{2}$", war_time):
-        await message.answer("Время укажи в формате 16:00")
-        return
-    if not server_num.isdigit() or int(server_num) not in SERVER_MAP:
-        await message.answer("Сервер должен быть числом от 1 до 32.")
-        return
-    cnt = parse_count(player_count)
-    if not cnt:
-        await message.answer("Количество укажи как 3 или 3x3")
-        return
-
-    chat_id = message.peer_id - 2_000_000_000
-    add_bizwar(chat_id, war_time, enemy, int(server_num), cnt)
-    await message.answer(f"Бизвар добавлен: {war_time} vs {enemy} ({SERVER_MAP[int(server_num)]}) [{cnt}x{cnt}]")
 
 
 @bot.on.message(text=["!add <strel_id> <target>", "/add <strel_id> <target>"])
