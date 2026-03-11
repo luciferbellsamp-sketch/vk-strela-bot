@@ -570,6 +570,18 @@ def list_today_bizwars(chat_id: int):
     )
     return cur.fetchall()
 
+def list_all_bizwars(chat_id: int):
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT * FROM bizwars
+        WHERE chat_id = ?
+        ORDER BY war_date ASC, war_time ASC, server_num ASC
+        """,
+        (chat_id,),
+    )
+    return cur.fetchall()
+
 def list_bizwars_by_date(chat_id: int, war_date: str):
     cur = conn.cursor()
     cur.execute(
@@ -1073,34 +1085,39 @@ async def bizwarnew_handler(message: Message, raw: str):
 
 
 @bot.on.message(text=["!bizwar", "/bizwar", "!strels", "/strels"])
-@bot.on.message(text=["!bizwar <war_date>", "/bizwar <war_date>", "!strels <war_date>", "/strels <war_date>"])
-async def bizwar_list_handler(message: Message, war_date: Optional[str] = None):
+async def bizwar_list_handler(message: Message):
     if message.peer_id is None or message.peer_id < 2_000_000_000:
         return
 
     cleanup_old_bizwars()
     chat_id = message.peer_id - 2_000_000_000
-
-    target_date = war_date or today_str()
-
-    if not re.match(r"^\d{2}\.\d{2}$", target_date):
-        await message.answer("Укажи дату в формате 10.03")
-        return
-
-    rows = list_bizwars_by_date(chat_id, target_date)
+    rows = list_all_bizwars(chat_id)
 
     if not rows:
-        await message.answer(f"На {target_date} стрел пока не запланировано.")
+        await message.answer("Стрел пока не запланировано.")
         return
 
-    lines = [f"{target_date}:"]
+    lines = []
+    current_date = None
+
     for row in rows:
+        if row["war_date"] != current_date:
+            if current_date is not None:
+                lines.append("")
+            current_date = row["war_date"]
+            lines.append(f"{current_date}:")
+
         server_name = SERVER_MAP.get(row["server_num"], row["server_num"])
         enemy = row["enemy"]
+
         if enemy == "strela":
-            lines.append(f"{row['war_time']} ({server_name}) [{row['player_count']}x{row['player_count']}]")
+            lines.append(
+                f"{row['war_time']} ({server_name}) [{row['player_count']}x{row['player_count']}]"
+            )
         else:
-            lines.append(f"{row['war_time']} vs {enemy} ({server_name}) [{row['player_count']}x{row['player_count']}]")
+            lines.append(
+                f"{row['war_time']} vs {enemy} ({server_name}) [{row['player_count']}x{row['player_count']}]"
+            )
 
     await message.answer("\n".join(lines))
 
