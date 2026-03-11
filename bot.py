@@ -561,6 +561,11 @@ def add_bizwar(chat_id: int, war_time: str, enemy: str, server_num: int, player_
     )
     conn.commit()
 
+def delete_bizwar(bizwar_id: int):
+    cur = conn.cursor()
+    cur.execute("DELETE FROM bizwars WHERE id = ?", (bizwar_id,))
+    conn.commit()
+
 
 def list_today_bizwars(chat_id: int):
     cur = conn.cursor()
@@ -822,6 +827,20 @@ async def chatid_handler(message: Message):
         await message.answer(f"Chat ID: {message.peer_id - 2_000_000_000}")
     else:
         await message.answer("Команда работает только в беседе.")
+
+@bot.on.message(text=["!bizwardel <bid>", "/bizwardel <bid>"])
+async def bizwar_delete_handler(message: Message, bid: str):
+    if message.from_id is None or not is_moderator(message.from_id):
+        await message.answer("У тебя нет прав.")
+        return
+
+    if not bid.isdigit():
+        await message.answer("Укажи ID бизвара.")
+        return
+
+    delete_bizwar(int(bid))
+
+    await message.answer("Бизвар удален.")
 
 
 @bot.on.message(text=["!memberadd <target>", "/memberadd <target>"])
@@ -1116,7 +1135,7 @@ async def bizwar_list_handler(message: Message):
             )
         else:
             lines.append(
-                f"{row['war_time']} vs {enemy} ({server_name}) [{row['player_count']}x{row['player_count']}]"
+                f"[{row['id']}] {row['war_time']} vs {enemy} ({server_name}) [{row['player_count']}x{row['player_count']}]"
             )
 
     await message.answer("\n".join(lines))
