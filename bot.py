@@ -103,7 +103,7 @@ def init_db() -> None:
         )
         """
     )
-        cur.execute(
+    cur.execute(
         """
         CREATE TABLE IF NOT EXISTS members (
             user_id INTEGER NOT NULL,
