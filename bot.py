@@ -142,6 +142,7 @@ class StrelData:
 
 
 MENTION_RE = re.compile(r"\[id(\d+)\|[^\]]+\]|@id(\d+)|\[club(\d+)\|[^\]]+\]|@club(\d+)")
+STREL_ID_RE = re.compile(r"ID стрелы:\s*(\d+)")
 
 def now_ts() -> int:
     return int(time.time())
@@ -163,6 +164,17 @@ def extract_user_id(raw: str) -> Optional[int]:
         if group and group.isdigit():
             return int(group)
     return None
+
+def extract_strel_id_from_reply(reply_message) -> Optional[int]:
+    if not reply_message:
+        return None
+
+    text = getattr(reply_message, "text", "") or ""
+    match = STREL_ID_RE.search(text)
+    if not match:
+        return None
+
+    return int(match.group(1))
 
 def parse_count(value: str) -> Optional[int]:
     value = value.lower().replace("х", "x")
@@ -632,6 +644,27 @@ async def update_strel_message(strel_id: int) -> None:
     except Exception as e:
         print("EDIT ERROR:", e)
 
+async def update_strel_message(strel_id: int) -> None:
+    strel = fetch_strel(strel_id)
+    if not strel:
+        return
+
+    if not strel["message_id"]:
+        print(f"EDIT ERROR: no message_id for strel {strel_id}")
+        return
+
+    text = await build_strel_text(strel_id)
+
+    try:
+        await bot.api.messages.edit(
+            peer_id=strel["peer_id"],
+            message_id=int(strel["message_id"]),
+            message=text,
+            keyboard=build_strel_keyboard(strel_id),
+        )
+    except Exception as e:
+        print("EDIT ERROR:", e)
+
 async def send_weekly_reports() -> None:
     since_ts = now_ts() - 7 * 86400
     cur = conn.cursor()
@@ -836,19 +869,19 @@ async def plus_handler(message: Message):
         await message.answer("Напиши + ответом на сообщение стрелы.")
         return
 
-    replied_message_id = getattr(message.reply_message, "id", None)
-    if not replied_message_id:
-        await message.answer("Не удалось определить сообщение стрелы.")
-        return
-
-    strel = fetch_strel_by_message_id(int(replied_message_id))
-    if not strel:
+    strel_id = extract_strel_id_from_reply(message.reply_message)
+    if not strel_id:
         await message.answer("Это не сообщение стрелы.")
         return
 
-    ok, text = add_user_to_strel(strel["id"], message.from_id)
+    strel = fetch_strel(strel_id)
+    if not strel:
+        await message.answer("Стрела не найдена.")
+        return
+
+    ok, text = add_user_to_strel(strel_id, message.from_id)
     if ok:
-        await update_strel_message(strel["id"])
+        await update_strel_message(strel_id)
 
     try:
         await bot.api.messages.delete(
@@ -873,19 +906,19 @@ async def minus_handler(message: Message):
         await message.answer("Напиши - ответом на сообщение стрелы.")
         return
 
-    replied_message_id = getattr(message.reply_message, "id", None)
-    if not replied_message_id:
-        await message.answer("Не удалось определить сообщение стрелы.")
-        return
-
-    strel = fetch_strel_by_message_id(int(replied_message_id))
-    if not strel:
+    strel_id = extract_strel_id_from_reply(message.reply_message)
+    if not strel_id:
         await message.answer("Это не сообщение стрелы.")
         return
 
-    ok, text = remove_user_from_strel(strel["id"], message.from_id)
+    strel = fetch_strel(strel_id)
+    if not strel:
+        await message.answer("Стрела не найдена.")
+        return
+
+    ok, text = remove_user_from_strel(strel_id, message.from_id)
     if ok:
-        await update_strel_message(strel["id"])
+        await update_strel_message(strel_id)
 
     try:
         await bot.api.messages.delete(
@@ -1048,7 +1081,7 @@ async def add_handler(message: Message, strel_id: str, target: str, slot_type: s
     )
     conn.commit()
 
-    await resend_strel_message(int(strel_id))
+    await update_strel_message(strel_id)
 
     if slot_type == "main":
         await message.answer("Игрок добавлен в основу.")
@@ -1071,7 +1104,7 @@ async def remove_handler(message: Message, strel_id: str, target: str):
 
     ok, text = remove_user_from_strel(int(strel_id), user_id)
     if ok:
-        await resend_strel_message(int(strel_id))
+        await update_strel_message(int(strel_id))
     await message.answer(text)
 
 @bot.on.message(text=["!all <text>", "/all <text>"])
