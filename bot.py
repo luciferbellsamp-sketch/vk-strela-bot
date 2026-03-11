@@ -259,6 +259,18 @@ def parse_bizwarnew_command(text: str) -> Optional[BizwarData]:
 
 
 def build_strel_keyboard(strel_id: int):
+    strel = fetch_strel(strel_id)
+
+    if strel and is_strel_locked(strel):
+        return (
+            Keyboard(inline=True)
+            .add(
+                Callback("⛔ Стрела началась", payload={"cmd": "locked_strel", "strel_id": strel_id}),
+                color=KeyboardButtonColor.SECONDARY,
+            )
+            .get_json()
+        )
+
     return (
         Keyboard(inline=True)
         .add(
@@ -295,6 +307,21 @@ def fetch_strel_players(strel_id: int):
         (strel_id,),
     )
     return cur.fetchall()
+
+def is_strel_locked(strel) -> bool:
+    if not strel:
+        return True
+
+    try:
+        strel_dt = datetime.strptime(
+            f"{strel['event_date']} {strel['event_time']}",
+            "%d.%m %H:%M"
+        ).replace(year=now().year, tzinfo=MSK)
+    except Exception:
+        return False
+
+    lock_dt = strel_dt + timedelta(minutes=20)
+    return now() >= lock_dt
 
 
 def fetch_player_entry(strel_id: int, user_id: int):
@@ -409,6 +436,8 @@ def add_user_to_strel(strel_id: int, user_id: int) -> tuple[bool, str]:
     strel = fetch_strel(strel_id)
     if not strel or not strel["is_active"]:
         return False, "Стрела не найдена или уже закрыта."
+    if is_strel_locked(strel):
+        return False, "Стрела уже началась. Запись закрыта."
 
     if fetch_player_entry(strel_id, user_id):
         return False, "Ты уже записан."
@@ -446,6 +475,13 @@ def add_user_to_strel(strel_id: int, user_id: int) -> tuple[bool, str]:
 
 
 def remove_user_from_strel(strel_id: int, user_id: int) -> tuple[bool, str]:
+    strel = fetch_strel(strel_id)
+    if not strel:
+        return False, "Стрела не найдена."
+
+    if is_strel_locked(strel):
+        return False, "Стрела уже началась. Выход закрыт."
+
     entry = fetch_player_entry(strel_id, user_id)
     if not entry:
         return False, "Тебя нет в списке этой стрелы."
@@ -602,11 +638,26 @@ def list_bizwars_by_date(chat_id: int, war_date: str):
 
 def cleanup_old_bizwars() -> None:
     cur = conn.cursor()
-    current_hm = now().strftime("%H:%M")
+
+    # удаляем прошлые дни
     cur.execute("DELETE FROM bizwars WHERE war_date < ?", (today_str(),))
-    cur.execute("DELETE FROM bizwars WHERE war_date = ? AND war_time < ?", (today_str(), current_hm))
-    if now().hour >= 22:
-        cur.execute("DELETE FROM bizwars WHERE war_date = ?", (today_str(),))
+
+    rows = list_today_bizwars(CHAT_ID) if CHAT_ID else []
+
+    now_time = now()
+
+    for row in rows:
+        war_dt = datetime.strptime(
+            f"{row['war_date']} {row['war_time']}",
+            "%d.%m %H:%M"
+        ).replace(year=now_time.year, tzinfo=MSK)
+
+        # добавляем 20 минут
+        remove_time = war_dt + timedelta(minutes=20)
+
+        if now_time >= remove_time:
+            cur.execute("DELETE FROM bizwars WHERE id = ?", (row["id"],))
+
     conn.commit()
 
 
@@ -1336,6 +1387,8 @@ async def handle_message_event(event: GroupTypes.MessageEvent):
             _, text = remove_user_from_strel(strel_id, user_id)
         elif cmd == "refresh_strel":
             text = "Список обновлен."
+        elif cmd == "locked_strel":
+            text = "Стрела уже началась. Состав закрыт."
         else:
             text = "Неизвестная команда."
 
