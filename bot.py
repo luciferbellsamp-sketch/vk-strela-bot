@@ -138,7 +138,7 @@ def now_ts() -> int:
 MSK = timezone(timedelta(hours=3))
 
 def now():
-    return now(MSK)
+    return datetime.now(MSK)
 def today_str() -> str:
     return now().strftime("%d.%m")
 
