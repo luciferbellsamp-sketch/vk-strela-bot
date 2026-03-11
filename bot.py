@@ -434,22 +434,13 @@ async def update_strel_message(strel_id: int) -> None:
         print(f"DEBUG: strel {strel_id} not found")
         return
 
-    print(
-        "DEBUG STREL:",
-        {
-            "id": strel["id"],
-            "peer_id": strel["peer_id"],
-            "conversation_message_id": strel["conversation_message_id"],
-        },
-    )
-
     text = await build_strel_text(strel_id)
     print("DEBUG TEXT:")
     print(text)
 
     result = await bot.api.messages.edit(
         peer_id=strel["peer_id"],
-        conversation_message_id=strel["conversation_message_id"],
+        message_id=strel["conversation_message_id"],
         message=text,
         keyboard=build_strel_keyboard(strel_id),
     )
@@ -601,6 +592,8 @@ async def strela_handler(message: Message, raw: str):
         message=text,
         keyboard=build_strel_keyboard(strel_id),
     )
+
+    set_strel_cmid(strel_id, sent_message_id)
 
     msg_info = await bot.api.messages.get_by_id(message_ids=[sent_message_id])
     conversation_message_id = msg_info.items[0].conversation_message_id
@@ -797,7 +790,7 @@ async def handle_message_event(event: GroupTypes.MessageEvent):
             event_id=event.object.event_id,
             user_id=user_id,
             peer_id=peer_id,
-            event_data={"type": "show_snackbar", "text": f"Ошибка: {e}"},
+            event_data={"type": "show_snackbar", "text": "Ошибка обновления"},
         )
         raise
 
