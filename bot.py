@@ -108,6 +108,14 @@ def init_db() -> None:
         )
         """
     )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS moderators (
+            user_id INTEGER PRIMARY KEY
+        )
+        """
+     )
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS members (
@@ -160,7 +168,20 @@ def today_str() -> str:
 
 
 def is_moderator(user_id: int) -> bool:
-    return user_id in MODERATOR_IDS
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM moderators WHERE user_id = ?", (user_id,))
+    return cur.fetchone() is not None
+
+def add_moderator(user_id: int):
+    cur = conn.cursor()
+    cur.execute("INSERT OR IGNORE INTO moderators (user_id) VALUES (?)", (user_id,))
+    conn.commit()
+
+
+def remove_moderator(user_id: int):
+    cur = conn.cursor()
+    cur.execute("DELETE FROM moderators WHERE user_id = ?", (user_id,))
+    conn.commit()
 
 
 def extract_user_id(raw: str) -> Optional[int]:
@@ -892,6 +913,42 @@ async def bizwar_delete_handler(message: Message, bid: str):
     delete_bizwar(int(bid))
 
     await message.answer("Бизвар удален.")
+
+@bot.on.message(text=["!modadd <target>"])
+async def modadd_handler(message: Message, target: str):
+    if message.from_id is None:
+        return
+
+    if not is_moderator(message.from_id):
+        await message.answer("У тебя нет прав.")
+        return
+
+    user_id = extract_user_id(target)
+    if not user_id:
+        await message.answer("Не смог определить пользователя.")
+        return
+
+    add_moderator(user_id)
+
+    await message.answer(f"[id{user_id}|Пользователь] теперь модератор.")
+
+@bot.on.message(text=["!moddel <target>"])
+async def moddel_handler(message: Message, target: str):
+    if message.from_id is None:
+        return
+
+    if not is_moderator(message.from_id):
+        await message.answer("У тебя нет прав.")
+        return
+
+    user_id = extract_user_id(target)
+    if not user_id:
+        await message.answer("Не смог определить пользователя.")
+        return
+
+    remove_moderator(user_id)
+
+    await message.answer(f"[id{user_id}|Пользователь] больше не модератор.")
 
 
 @bot.on.message(text=["!memberadd <target>", "/memberadd <target>"])
