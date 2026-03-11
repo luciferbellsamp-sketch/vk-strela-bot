@@ -369,25 +369,6 @@ async def help_handler(message: Message):
     )
 
 
-@bot.on.message()
-async def mute_guard(message: Message):
-    if message.from_id is None or message.peer_id is None:
-        return
-    if message.peer_id < 2_000_000_000:
-        return
-    chat_id = message.peer_id - 2_000_000_000
-    until_ts = get_active_mute(chat_id, message.from_id)
-    if until_ts:
-        try:
-            await bot.api.messages.delete(
-                peer_id=message.peer_id,
-                cmids=[message.conversation_message_id],
-                delete_for_all=True,
-            )
-        except Exception:
-            pass
-
-
 @bot.on.message(text="/strela <raw>")
 async def strela_handler(message: Message, raw: str):
     if message.from_id is None or message.peer_id is None:
@@ -583,6 +564,24 @@ async def handle_message_event(event):
         event_data={"type": "show_snackbar", "text": text},
     )
 
+
+@bot.on.message()
+async def mute_guard(message: Message):
+    if message.from_id is None or message.peer_id is None:
+        return
+    if message.peer_id < 2_000_000_000:
+        return
+    chat_id = message.peer_id - 2_000_000_000
+    until_ts = get_active_mute(chat_id, message.from_id)
+    if until_ts:
+        try:
+            await bot.api.messages.delete(
+                peer_id=message.peer_id,
+                cmids=[message.conversation_message_id],
+                delete_for_all=True,
+            )
+        except Exception:
+            pass
 
 # =========================================================
 # START
