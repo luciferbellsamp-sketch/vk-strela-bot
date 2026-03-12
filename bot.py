@@ -1508,13 +1508,6 @@ async def strela_handler(message: Message, raw: str):
     except Exception as e:
         print("SAVE MESSAGE ID ERROR:", e)
 
-    server_num = None
-    parsed_server_lower = parsed.server_name.lower()
-    for num, name in SERVER_MAP.items():
-        if name.lower() == parsed_server_lower:
-            server_num = num
-            break
-
    server_num = extract_server_num(parsed.server_name)
 
    if server_num is not None:
