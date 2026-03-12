@@ -1078,12 +1078,20 @@ async def chatid_handler(message: Message):
 
 @bot.on.message(text=["!bizwardel <bid>", "/bizwardel <bid>"])
 async def bizwar_delete_handler(message: Message, bid: str):
-    if message.from_id is None or not is_moderator(message.from_id):
+    if message.from_id is None or message.peer_id is None:
+        return
+
+    if not is_moderator(message.from_id):
         await message.answer("У тебя нет прав.")
         return
 
     if not bid.isdigit():
         await message.answer("Укажи ID бизвара.")
+        return
+
+    chat_id, target_peer_id, error = resolve_target_chat(message)
+    if error:
+        await message.answer(error)
         return
 
     delete_bizwar(int(bid))
@@ -1385,11 +1393,15 @@ async def bizwarnew_handler(message: Message, raw: str):
 
 @bot.on.message(text=["!bizwar", "/bizwar", "!strels", "/strels"])
 async def bizwar_list_handler(message: Message):
-    if message.peer_id is None or message.peer_id < 2_000_000_000:
+    if message.peer_id is None:
+        return
+
+    chat_id, target_peer_id, error = resolve_target_chat(message)
+    if error:
+        await message.answer(error)
         return
 
     cleanup_old_bizwars()
-    chat_id = message.peer_id - 2_000_000_000
     rows = list_all_bizwars(chat_id)
 
     if not rows:
