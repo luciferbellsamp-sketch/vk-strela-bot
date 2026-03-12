@@ -453,48 +453,43 @@ def rebalance_strel(strel_id: int) -> None:
     conn.commit()
 
 
-def add_user_to_strel(strel_id: int, user_id: int):
-    conn = sqlite3.connect(DB_NAME)
+def add_user_to_strel(strel_id: int, user_id: int) -> tuple[bool, str]:
+    strel = fetch_strel(strel_id)
+    if not strel or not strel["is_active"]:
+        return False, "Стрела не найдена или уже закрыта."
+
+    if is_strel_locked(strel):
+        return False, "Стрела уже началась. Запись закрыта."
+
+    if fetch_player_entry(strel_id, user_id):
+        return False, "Ты уже записан."
+
+    limit = strel["count_slots"]
     cur = conn.cursor()
 
-    # Проверяем, записан ли уже игрок
-    cur.execute(
-        "SELECT 1 FROM strel_players WHERE strel_id=? AND user_id=?",
-        (strel_id, user_id),
-    )
-    if cur.fetchone():
-        conn.close()
-        return False, "Ты уже записан"
+    # Сначала пытаемся записать в основу
+    main_pos = get_next_free_position(strel_id, "main", limit)
+    if main_pos is not None:
+        cur.execute(
+            "INSERT INTO strel_players (strel_id, user_id, slot_type, position) VALUES (?, ?, ?, ?)",
+            (strel_id, user_id, "main", main_pos),
+        )
+        conn.commit()
+        log_activity(strel["chat_id"], user_id, "join")
+        return True, f"Ты записан в основу #{main_pos}."
 
-    # Сколько человек в основе
-    cur.execute(
-        "SELECT COUNT(*) FROM strel_players WHERE strel_id=? AND role='main'",
-        (strel_id,),
-    )
-    main_count = cur.fetchone()[0]
+    # Если основа заполнена — пытаемся в резерв
+    reserve_pos = get_next_free_position(strel_id, "reserve", limit)
+    if reserve_pos is not None:
+        cur.execute(
+            "INSERT INTO strel_players (strel_id, user_id, slot_type, position) VALUES (?, ?, ?, ?)",
+            (strel_id, user_id, "reserve", reserve_pos),
+        )
+        conn.commit()
+        log_activity(strel["chat_id"], user_id, "join")
+        return True, f"Основа занята. Ты записан в резерв #{reserve_pos}."
 
-    # Сколько в резерве
-    cur.execute(
-        "SELECT COUNT(*) FROM strel_players WHERE strel_id=? AND role='reserve'",
-        (strel_id,),
-    )
-    reserve_count = cur.fetchone()[0]
-
-    # Сначала пытаемся в основу
-    if main_count < MAIN_SLOTS:
-        role = "main"
-    else:
-        role = "reserve"
-
-    cur.execute(
-        "INSERT INTO strel_players (strel_id, user_id, role) VALUES (?, ?, ?)",
-        (strel_id, user_id, role),
-    )
-
-    conn.commit()
-    conn.close()
-
-    return True, role
+    return False, "Свободных мест нет."
 
 
 def remove_user_from_strel(strel_id: int, user_id: int) -> tuple[bool, str]:
