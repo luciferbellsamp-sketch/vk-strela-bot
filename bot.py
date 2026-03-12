@@ -203,27 +203,76 @@ def parse_count(value: str) -> Optional[int]:
 
 
 def parse_strela_command(text: str) -> Optional[StrelData]:
-    parts = text.strip().split(maxsplit=5)
-    if len(parts) < 5:
+    """
+    Поддерживаемые форматы:
+    !strela 17:20 (prescott) [4x4]
+    !strela 17:20 (prescott) [4x4] комментарий
+
+    !strela 17:20 prescott 4x4
+    !strela 17:20 prescott 4x4 комментарий
+
+    Логика даты:
+    - если время ещё не прошло -> сегодня
+    - если время уже прошло -> завтра
+    """
+
+    text = text.strip()
+
+    pattern = (
+        r"^(?:!strela|/strela)\s+"
+        r"(\d{1,2}:\d{2})\s+"
+        r"(?:\(([^)]+)\)|([^\s]+))\s+"
+        r"(?:\[(\d+)[xх](\d+)\]|(\d+)[xх](\d+))"
+        r"(?:\s+(.*))?$"
+    )
+    match = re.match(pattern, text, flags=re.IGNORECASE)
+
+    if not match:
         return None
 
-    cmd, count_raw, server_name, event_date, event_time = parts[:5]
-    if cmd.lower() not in {"!strela", "/strela"}:
+    event_time = match.group(1)
+    server_name = (match.group(2) or match.group(3) or "").strip()
+
+    count_left = match.group(4) or match.group(6)
+    count_right = match.group(5) or match.group(7)
+    comment = (match.group(8) or "").strip()
+
+    try:
+        count_left = int(count_left)
+        count_right = int(count_right)
+    except (TypeError, ValueError):
         return None
 
-    count_slots = parse_count(count_raw)
-    if not count_slots or count_slots < 1 or count_slots > 20:
+    if not server_name:
         return None
 
-    if not re.match(r"^\d{2}\.\d{2}$", event_date):
+    if count_left != count_right:
         return None
 
-    if not re.match(r"^\d{1,2}:\d{2}$", event_time):
+    if count_left < 1 or count_left > 20:
         return None
 
-    comment = parts[5] if len(parts) > 5 else ""
+    try:
+        event_dt_time = datetime.strptime(event_time, "%H:%M").time()
+    except ValueError:
+        return None
+
+    current_dt = now()
+    event_dt = current_dt.replace(
+        hour=event_dt_time.hour,
+        minute=event_dt_time.minute,
+        second=0,
+        microsecond=0,
+    )
+
+    # Если указанное время уже прошло — ставим на следующий день
+    if event_dt <= current_dt:
+        event_dt += timedelta(days=1)
+
+    event_date = event_dt.strftime("%d.%m")
+
     return StrelData(
-        count_slots=count_slots,
+        count_slots=count_left,
         server_name=server_name,
         event_date=event_date,
         event_time=event_time,
@@ -1088,7 +1137,7 @@ async def activ_handler(message: Message):
 async def help_handler(message: Message):
     await message.answer(
         "Команды:\n"
-        "!strela - забить стрелу. Пример: !strela 4x4 Mirage 10.03 17:00 Дигл шот\n"
+        "!strela - забить стрелу. Пример: !strela 17:20 (prescott) [4x4] дигл шот\n"
         "/bizwarnew 10.03 17:00 lcn 29 4 - добавить бизвар в расписание\n"
         "/bizwar - показать запланированные стрелы\n"
         "/bizwardel id  - удалить стрелу из списка\n"
@@ -1126,7 +1175,10 @@ async def strela_handler(message: Message, raw: str):
 
     parsed = parse_strela_command(f"!strela {raw}")
     if not parsed:
-        await message.answer("Формат: !strela 4x4 Mirage 10.03 17:00 Дигл шот")
+        await message.answer(
+            "Формат: !strela 17:20 (prescott) [4x4] комментарий\n"
+            "Пример: !strela 17:20 (prescott) [4x4] дигл шот"
+        )
         return
 
     strel_id = create_strel(chat_id, message.peer_id, message.from_id, parsed)
