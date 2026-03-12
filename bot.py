@@ -1501,27 +1501,26 @@ async def strela_handler(message: Message, raw: str):
         keyboard=build_strel_keyboard(strel_id),
     )
 
-       print("DEBUG SEND RESULT:", result)
+    print("DEBUG SEND RESULT:", result)
 
-       try:
-           set_strel_message_id(strel_id, int(result))
-       except Exception as e:
-           print("SAVE MESSAGE ID ERROR:", e)
+    try:
+        set_strel_message_id(strel_id, int(result))
+    except Exception as e:
+        print("SAVE MESSAGE ID ERROR:", e)
 
-       server_num = extract_server_num(parsed.server_name)
+    server_num = extract_server_num(parsed.server_name)
 
-       if server_num is not None:
-           add_bizwar(
-               chat_id,
-               parsed.event_time,
-               "strela",
-               server_num,
-               parsed.count_slots,
-               parsed.event_date,
-            )
+    if server_num is not None:
+        add_bizwar(
+            chat_id,
+            parsed.event_time,
+            "strela",
+            server_num,
+            parsed.count_slots,
+            parsed.event_date,
+        )
 
-            await update_bizwar_feed_message(chat_id)
-
+        await update_bizwar_feed_message(chat_id)
 @bot.on.message(text=["!bizwarnew <raw>", "/bizwarnew <raw>"])
 async def bizwarnew_handler(message: Message, raw: str):
     if message.from_id is None or message.peer_id is None:
