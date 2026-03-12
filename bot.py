@@ -179,6 +179,38 @@ def now() -> datetime:
 def today_str() -> str:
     return now().strftime("%d.%m")
 
+def resolve_target_chat(message: Message) -> tuple[Optional[int], Optional[int], Optional[str]]:
+    """
+    Возвращает:
+    - chat_id: ID целевой беседы
+    - peer_id: peer_id целевой беседы
+    - error: текст ошибки или None
+
+    Логика:
+    - если команда пришла из беседы -> используем эту беседу
+    - если команда пришла в ЛС от модератора -> используем CHAT_ID
+    """
+
+    if message.peer_id is None:
+        return None, None, "Не удалось определить peer_id."
+
+    # Команда из беседы
+    if message.peer_id >= 2_000_000_000:
+        chat_id = message.peer_id - 2_000_000_000
+
+        if CHAT_ID and chat_id != CHAT_ID:
+            return None, None, "Бот настроен для другой беседы."
+
+        return chat_id, message.peer_id, None
+
+    # Команда из ЛС
+    if message.from_id is None or not is_moderator(message.from_id):
+        return None, None, "Команда в ЛС доступна только модераторам."
+
+    if not CHAT_ID:
+        return None, None, "CHAT_ID не задан."
+
+    return CHAT_ID, 2_000_000_000 + CHAT_ID, None
 
 def is_moderator(user_id: int) -> bool:
     cur = conn.cursor()
