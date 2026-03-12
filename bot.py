@@ -1289,18 +1289,13 @@ async def strela_handler(message: Message, raw: str):
     if message.from_id is None or message.peer_id is None:
         return
 
-    if message.peer_id < 2_000_000_000:
-        await message.answer("Эта команда работает только в беседе.")
-        return
-
-    chat_id = message.peer_id - 2_000_000_000
-
-    if CHAT_ID and chat_id != CHAT_ID:
-        await message.answer("Бот настроен для другой беседы.")
-        return
-
     if not is_moderator(message.from_id):
         await message.answer("У тебя нет прав на эту команду.")
+        return
+
+    chat_id, target_peer_id, error = resolve_target_chat(message)
+    if error:
+        await message.answer(error)
         return
 
     parsed = parse_strela_command(f"!strela {raw}")
@@ -1311,11 +1306,11 @@ async def strela_handler(message: Message, raw: str):
         )
         return
 
-    strel_id = create_strel(chat_id, message.peer_id, message.from_id, parsed)
+    strel_id = create_strel(chat_id, target_peer_id, message.from_id, parsed)
     text = f"@all\n\n{await build_strel_text(strel_id)}"
 
     result = await bot.api.messages.send(
-        peer_id=message.peer_id,
+        peer_id=target_peer_id,
         random_id=int(time.time() * 1000),
         message=text,
         keyboard=build_strel_keyboard(strel_id),
@@ -1338,23 +1333,21 @@ async def strela_handler(message: Message, raw: str):
     if server_num is not None:
         add_bizwar(chat_id, parsed.event_time, "strela", server_num, parsed.count_slots, parsed.event_date)
 
+    if message.peer_id < 2_000_000_000:
+        await message.answer("Стрела создана в беседе.")
+
 @bot.on.message(text=["!bizwarnew <raw>", "/bizwarnew <raw>"])
 async def bizwarnew_handler(message: Message, raw: str):
     if message.from_id is None or message.peer_id is None:
-        return
-
-    if message.peer_id < 2_000_000_000:
-        await message.answer("Команда работает только в беседе.")
         return
 
     if not is_moderator(message.from_id):
         await message.answer("У тебя нет прав на эту команду.")
         return
 
-    chat_id = message.peer_id - 2_000_000_000
-
-    if CHAT_ID and chat_id != CHAT_ID:
-        await message.answer("Бот настроен для другой беседы.")
+    chat_id, target_peer_id, error = resolve_target_chat(message)
+    if error:
+        await message.answer(error)
         return
 
     parsed = parse_bizwarnew_command(f"/bizwarnew {raw}")
@@ -1389,7 +1382,6 @@ async def bizwarnew_handler(message: Message, raw: str):
         f"{parsed.war_date} {parsed.war_time} vs {parsed.enemy} ({server_name}) "
         f"[{parsed.player_count}x{parsed.player_count}]"
     )
-
 
 @bot.on.message(text=["!bizwar", "/bizwar", "!strels", "/strels"])
 async def bizwar_list_handler(message: Message):
