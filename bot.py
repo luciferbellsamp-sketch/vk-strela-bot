@@ -126,6 +126,19 @@ def init_db() -> None:
         )
         """
     )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS strel_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            strel_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            chat_id INTEGER NOT NULL,
+            created_at INTEGER NOT NULL,
+            UNIQUE(strel_id, user_id)
+        )
+        """
+    )
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS activity (
@@ -574,6 +587,68 @@ def add_member(chat_id: int, user_id: int) -> None:
     )
     conn.commit()
 
+def finalize_strel_results(strel_id: int) -> bool:
+    """
+    Начисляет +1 только финальному составу из основы.
+    Возвращает True, если стрела была обработана сейчас.
+    Возвращает False, если уже была обработана раньше или стрела не найдена.
+    """
+    strel = fetch_strel(strel_id)
+    if not strel:
+        return False
+
+    cur = conn.cursor()
+
+    # Если по этой стреле уже есть результаты — повторно не начисляем
+    cur.execute(
+        "SELECT 1 FROM strel_results WHERE strel_id = ? LIMIT 1",
+        (strel_id,),
+    )
+    if cur.fetchone():
+        return False
+
+    cur.execute(
+        """
+        SELECT user_id
+        FROM strel_players
+        WHERE strel_id = ? AND slot_type = 'main'
+        ORDER BY position ASC
+        """,
+        (strel_id,),
+    )
+    main_players = cur.fetchall()
+
+    for row in main_players:
+        cur.execute(
+            """
+            INSERT OR IGNORE INTO strel_results (strel_id, user_id, chat_id, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (strel_id, row["user_id"], strel["chat_id"], now_ts()),
+        )
+
+    # После фиксации результата помечаем стрелу неактивной
+    cur.execute(
+        "UPDATE strels SET is_active = 0 WHERE id = ?",
+        (strel_id,),
+    )
+    conn.commit()
+    return True
+
+
+def get_strels_to_finalize(chat_id: int):
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT *
+        FROM strels
+        WHERE chat_id = ? AND is_active = 1
+        ORDER BY id ASC
+        """,
+        (chat_id,),
+    )
+    return cur.fetchall()
+
 
 def remove_member(chat_id: int, user_id: int) -> None:
     cur = conn.cursor()
@@ -612,8 +687,8 @@ def get_week_activity(chat_id: int, days: int = 7):
     cur.execute(
         """
         SELECT user_id, COUNT(*) as cnt
-        FROM activity
-        WHERE chat_id = ? AND action = 'join' AND created_at >= ?
+        FROM strel_results
+        WHERE chat_id = ? AND created_at >= ?
         GROUP BY user_id
         ORDER BY cnt DESC, user_id ASC
         """,
@@ -734,8 +809,8 @@ def get_top(chat_id: int, days: int):
     cur.execute(
         """
         SELECT user_id, COUNT(*) as cnt
-        FROM activity
-        WHERE chat_id = ? AND action = 'join' AND created_at >= ?
+        FROM strel_results
+        WHERE chat_id = ? AND created_at >= ?
         GROUP BY user_id
         ORDER BY cnt DESC, user_id ASC
         LIMIT 20
@@ -915,6 +990,29 @@ async def scheduler_loop() -> None:
                     cur.execute("UPDATE bizwars SET notified = 1 WHERE id = ?", (row["id"],))
                     conn.commit()
 
+            # Финализация стрел: только финальный основной состав получает +1
+            if CHAT_ID:
+                active_strels = get_strels_to_finalize(CHAT_ID)
+
+                for strel in active_strels:
+                    try:
+                        strel_dt = datetime.strptime(
+                            f"{strel['event_date']} {strel['event_time']}",
+                            "%d.%m %H:%M"
+                        ).replace(year=now_obj.year, tzinfo=MSK)
+                    except Exception as e:
+                        print(f"STREL FINALIZE PARSE ERROR {strel['id']}: {e}")
+                        continue
+
+                    finalize_dt = strel_dt + timedelta(minutes=20)
+
+                    if now_obj >= finalize_dt:
+                        finalized = finalize_strel_results(strel["id"])
+                        if finalized:
+                            print(f"STREL FINALIZED: {strel['id']}")
+
+            # Можно дополнительно автообновить сообщения уже закрытых стрел
+            # но не обязательно, так как build_strel_keyboard и так сам покажет lock
         except Exception as e:
             print(f"SCHEDULER ERROR: {e}")
 
