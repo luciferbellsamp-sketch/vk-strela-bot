@@ -1515,8 +1515,18 @@ async def strela_handler(message: Message, raw: str):
             server_num = num
             break
 
+   server_num = extract_server_num(parsed.server_name)
+
    if server_num is not None:
-       add_bizwar(chat_id, parsed.event_time, "strela", server_num, parsed.count_slots, parsed.event_date)
+       add_bizwar(
+           chat_id,
+           parsed.event_time,
+           "strela",
+           server_num,
+           parsed.count_slots,
+           parsed.event_date,
+       )
+
        await update_bizwar_feed_message(chat_id)
 
 @bot.on.message(text=["!bizwarnew <raw>", "/bizwarnew <raw>"])
