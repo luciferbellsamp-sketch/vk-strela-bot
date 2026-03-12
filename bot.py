@@ -70,17 +70,6 @@ def init_db() -> None:
         )
         """
     )
-
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS bizwar_feed_messages (
-            chat_id INTEGER PRIMARY KEY,
-            peer_id INTEGER NOT NULL,
-            message_id INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
-        )
-        """
-    )
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS strel_players (
@@ -127,17 +116,6 @@ def init_db() -> None:
         )
         """
      )
-
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS bizwar_feed_messages (
-            chat_id INTEGER PRIMARY KEY,
-            peer_id INTEGER NOT NULL,
-            message_id INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
-        )
-        """
-    )
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS members (
@@ -766,108 +744,6 @@ def delete_bizwar(bizwar_id: int):
     cur.execute("DELETE FROM bizwars WHERE id = ?", (bizwar_id,))
     conn.commit()
 
-def get_bizwar_feed(chat_id: int):
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT * FROM bizwar_feed_messages WHERE chat_id = ?",
-        (chat_id,),
-    )
-    return cur.fetchone()
-
-
-def set_bizwar_feed(chat_id: int, peer_id: int, message_id: int) -> None:
-    cur = conn.cursor()
-    cur.execute(
-        """
-        REPLACE INTO bizwar_feed_messages (chat_id, peer_id, message_id, updated_at)
-        VALUES (?, ?, ?, ?)
-        """,
-        (chat_id, peer_id, message_id, now_ts()),
-    )
-    conn.commit()
-
-
-async def build_bizwar_text(chat_id: int) -> str:
-    rows = list_all_bizwars(chat_id)
-
-    if not rows:
-        return "Стрел пока не запланировано."
-
-    lines = []
-    current_date = None
-
-    for row in rows:
-        if row["war_date"] != current_date:
-            if current_date is not None:
-                lines.append("")
-            current_date = row["war_date"]
-            lines.append(f"{current_date}:")
-
-        server_name = SERVER_MAP.get(row["server_num"], row["server_num"])
-        enemy = row["enemy"]
-
-        if enemy == "strela":
-            lines.append(
-                f"{row['war_time']} ({server_name}) [{row['player_count']}x{row['player_count']}]"
-            )
-        else:
-            lines.append(
-                f"[{row['id']}] {row['war_time']} vs {enemy} ({server_name}) [{row['player_count']}x{row['player_count']}]"
-            )
-
-    return "\n".join(lines)
-
-
-async def update_bizwar_feed_message(chat_id: int) -> None:
-    feed = get_bizwar_feed(chat_id)
-    if not feed:
-        return
-
-    text = await build_bizwar_text(chat_id)
-
-    try:
-        result = await bot.api.messages.edit(
-            peer_id=feed["peer_id"],
-            message_id=int(feed["message_id"]),
-            message=text,
-        )
-        print("BIZWAR FEED EDIT RESULT:", result)
-    except Exception as e:
-        print("BIZWAR FEED EDIT ERROR:", e)
-
-
-async def create_or_update_bizwar_feed(chat_id: int, peer_id: int) -> None:
-    feed = get_bizwar_feed(chat_id)
-    text = await build_bizwar_text(chat_id)
-
-    if feed:
-        try:
-            result = await bot.api.messages.edit(
-                peer_id=feed["peer_id"],
-                message_id=int(feed["message_id"]),
-                message=text,
-            )
-            print("BIZWAR FEED EDIT RESULT:", result)
-
-            cur = conn.cursor()
-            cur.execute(
-                "UPDATE bizwar_feed_messages SET updated_at = ? WHERE chat_id = ?",
-                (now_ts(), chat_id),
-            )
-            conn.commit()
-            return
-        except Exception as e:
-            print("BIZWAR FEED EDIT ERROR:", e)
-
-    result = await bot.api.messages.send(
-        peer_id=peer_id,
-        random_id=int(time.time() * 1000),
-        message=text,
-    )
-    print("BIZWAR FEED SEND RESULT:", result)
-
-    set_bizwar_feed(chat_id, peer_id, int(result))
-
 
 def list_today_bizwars(chat_id: int):
     cur = conn.cursor()
@@ -889,104 +765,6 @@ def list_all_bizwars(chat_id: int):
     )
     return cur.fetchall()
 
-def get_bizwar_feed(chat_id: int):
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT * FROM bizwar_feed_messages WHERE chat_id = ?",
-        (chat_id,),
-    )
-    return cur.fetchone()
-
-
-def set_bizwar_feed(chat_id: int, peer_id: int, message_id: int) -> None:
-    cur = conn.cursor()
-    cur.execute(
-        """
-        REPLACE INTO bizwar_feed_messages (chat_id, peer_id, message_id, updated_at)
-        VALUES (?, ?, ?, ?)
-        """,
-        (chat_id, peer_id, message_id, now_ts()),
-    )
-    conn.commit()
-
-
-async def build_bizwar_text(chat_id: int) -> str:
-    rows = list_all_bizwars(chat_id)
-
-    if not rows:
-        return "Бизваров нет."
-
-    lines = []
-    current_date = None
-
-    for row in rows:
-        if row["war_date"] != current_date:
-            if current_date is not None:
-                lines.append("")
-            current_date = row["war_date"]
-            lines.append(f"{current_date}:")
-
-        server_name = SERVER_MAP.get(row["server_num"], row["server_num"])
-        enemy = row["enemy"]
-
-        if enemy == "strela":
-            lines.append(
-                f"{row['war_time']} ({server_name}) [{row['player_count']}x{row['player_count']}]"
-            )
-        else:
-            lines.append(
-                f"[{row['id']}] {row['war_time']} vs {enemy} ({server_name}) [{row['player_count']}x{row['player_count']}]"
-            )
-
-    return "\n".join(lines)
-
-
-async def update_bizwar_feed_message(chat_id: int) -> None:
-    feed = get_bizwar_feed(chat_id)
-    if not feed:
-        return
-
-    text = await build_bizwar_text(chat_id)
-
-    try:
-        await bot.api.messages.edit(
-            peer_id=int(feed["peer_id"]),
-            message_id=int(feed["message_id"]),
-            message=text,
-        )
-    except Exception as e:
-        print("BIZWAR FEED EDIT ERROR:", e)
-
-
-async def create_or_update_bizwar_feed(chat_id: int, peer_id: int) -> None:
-    feed = get_bizwar_feed(chat_id)
-    text = await build_bizwar_text(chat_id)
-
-    if feed:
-        try:
-            await bot.api.messages.edit(
-                peer_id=int(feed["peer_id"]),
-                message_id=int(feed["message_id"]),
-                message=text,
-            )
-            cur = conn.cursor()
-            cur.execute(
-                "UPDATE bizwar_feed_messages SET updated_at = ? WHERE chat_id = ?",
-                (now_ts(), chat_id),
-            )
-            conn.commit()
-            return
-        except Exception as e:
-            print("BIZWAR FEED EDIT ERROR:", e)
-
-    result = await bot.api.messages.send(
-        peer_id=peer_id,
-        random_id=int(time.time() * 1000),
-        message=text,
-    )
-
-    set_bizwar_feed(chat_id, peer_id, int(result))
-
 def list_bizwars_by_date(chat_id: int, war_date: str):
     cur = conn.cursor()
     cur.execute(
@@ -1000,16 +778,14 @@ def list_bizwars_by_date(chat_id: int, war_date: str):
     return cur.fetchall()
 
 
-def cleanup_old_bizwars() -> bool:
+def cleanup_old_bizwars() -> None:
     cur = conn.cursor()
-    changed = False
 
-    # Удаляем прошлые дни
+    # удаляем прошлые дни
     cur.execute("DELETE FROM bizwars WHERE war_date < ?", (today_str(),))
-    if cur.rowcount > 0:
-        changed = True
 
     rows = list_today_bizwars(CHAT_ID) if CHAT_ID else []
+
     now_time = now()
 
     for row in rows:
@@ -1018,15 +794,13 @@ def cleanup_old_bizwars() -> bool:
             "%d.%m %H:%M"
         ).replace(year=now_time.year, tzinfo=MSK)
 
+        # добавляем 20 минут
         remove_time = war_dt + timedelta(minutes=20)
 
         if now_time >= remove_time:
             cur.execute("DELETE FROM bizwars WHERE id = ?", (row["id"],))
-            if cur.rowcount > 0:
-                changed = True
 
     conn.commit()
-    return changed
 
 
 def get_top(chat_id: int, days: int):
@@ -1208,6 +982,7 @@ async def scheduler_loop() -> None:
                                 f"[{row['player_count']}x{row['player_count']}]"
                             ),
                         )
+                        print("DEBUG REMINDER SENT OK")
                     except Exception as e:
                         print("DEBUG REMINDER SEND ERROR:", e)
 
@@ -1215,9 +990,29 @@ async def scheduler_loop() -> None:
                     cur.execute("UPDATE bizwars SET notified = 1 WHERE id = ?", (row["id"],))
                     conn.commit()
 
+            # Финализация стрел: только финальный основной состав получает +1
             if CHAT_ID:
-                await update_bizwar_feed_message(CHAT_ID)
+                active_strels = get_strels_to_finalize(CHAT_ID)
 
+                for strel in active_strels:
+                    try:
+                        strel_dt = datetime.strptime(
+                            f"{strel['event_date']} {strel['event_time']}",
+                            "%d.%m %H:%M"
+                        ).replace(year=now_obj.year, tzinfo=MSK)
+                    except Exception as e:
+                        print(f"STREL FINALIZE PARSE ERROR {strel['id']}: {e}")
+                        continue
+
+                    finalize_dt = strel_dt + timedelta(minutes=20)
+
+                    if now_obj >= finalize_dt:
+                        finalized = finalize_strel_results(strel["id"])
+                        if finalized:
+                            print(f"STREL FINALIZED: {strel['id']}")
+
+            # Можно дополнительно автообновить сообщения уже закрытых стрел
+            # но не обязательно, так как build_strel_keyboard и так сам покажет lock
         except Exception as e:
             print(f"SCHEDULER ERROR: {e}")
 
@@ -1259,14 +1054,7 @@ async def bizwar_delete_handler(message: Message, bid: str):
         await message.answer("Укажи ID бизвара.")
         return
 
-    if message.peer_id is None or message.peer_id < 2_000_000_000:
-        await message.answer("Команда работает только в беседе.")
-        return
-
-    chat_id = message.peer_id - 2_000_000_000
-
     delete_bizwar(int(bid))
-    await update_bizwar_feed_message(chat_id)
 
     await message.answer("Бизвар удален.")
 
@@ -1508,19 +1296,16 @@ async def strela_handler(message: Message, raw: str):
     except Exception as e:
         print("SAVE MESSAGE ID ERROR:", e)
 
-    server_num = extract_server_num(parsed.server_name)
+    server_num = None
+    parsed_server_lower = parsed.server_name.lower()
+    for num, name in SERVER_MAP.items():
+        if name.lower() == parsed_server_lower:
+            server_num = num
+            break
 
     if server_num is not None:
-        add_bizwar(
-            chat_id,
-            parsed.event_time,
-            "strela",
-            server_num,
-            parsed.count_slots,
-            parsed.event_date,
-        )
+        add_bizwar(chat_id, parsed.event_time, "strela", server_num, parsed.count_slots, parsed.event_date)
 
-        await update_bizwar_feed_message(chat_id)
 @bot.on.message(text=["!bizwarnew <raw>", "/bizwarnew <raw>"])
 async def bizwarnew_handler(message: Message, raw: str):
     if message.from_id is None or message.peer_id is None:
@@ -1566,8 +1351,6 @@ async def bizwarnew_handler(message: Message, raw: str):
     )
     conn.commit()
 
-    await update_bizwar_feed_message(chat_id)
-
     server_name = SERVER_MAP.get(parsed.server_num, str(parsed.server_num))
     await message.answer(
         f"Бизвар добавлен:\n"
@@ -1581,12 +1364,37 @@ async def bizwar_list_handler(message: Message):
     if message.peer_id is None or message.peer_id < 2_000_000_000:
         return
 
-    chat_id = message.peer_id - 2_000_000_000
-
     cleanup_old_bizwars()
-    await create_or_update_bizwar_feed(chat_id, message.peer_id)
+    chat_id = message.peer_id - 2_000_000_000
+    rows = list_all_bizwars(chat_id)
 
-    await message.answer("Список бизваров обновлён.")
+    if not rows:
+        await message.answer("Стрел пока не запланировано.")
+        return
+
+    lines = []
+    current_date = None
+
+    for row in rows:
+        if row["war_date"] != current_date:
+            if current_date is not None:
+                lines.append("")
+            current_date = row["war_date"]
+            lines.append(f"{current_date}:")
+
+        server_name = SERVER_MAP.get(row["server_num"], row["server_num"])
+        enemy = row["enemy"]
+
+        if enemy == "strela":
+            lines.append(
+                f"{row['war_time']} ({server_name}) [{row['player_count']}x{row['player_count']}]"
+            )
+        else:
+            lines.append(
+                f"[{row['id']}] {row['war_time']} vs {enemy} ({server_name}) [{row['player_count']}x{row['player_count']}]"
+            )
+
+    await message.answer("\n".join(lines))
 
 
 @bot.on.message(text=["!add <strel_id> <target> <slot_type>", "/add <strel_id> <target> <slot_type>"])
